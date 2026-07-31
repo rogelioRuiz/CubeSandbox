@@ -21,6 +21,9 @@ pub struct TxVirtio {
     pub counter_frames: Wrapping<u64>,
     pub limit_bytes: Wrapping<u64>,
     pub limit_frames: Wrapping<u64>,
+    /// Frames the tap refused with EIO and we dropped instead of killing the
+    /// VM (see the EIO branch in `process_desc_chain`).
+    pub dropped_frames: Wrapping<u64>,
 }
 
 impl Default for TxVirtio {
@@ -36,6 +39,7 @@ impl TxVirtio {
             counter_frames: Wrapping(0),
             limit_bytes: Wrapping(0),
             limit_frames: Wrapping(0),
+            dropped_frames: Wrapping(0),
         }
     }
 
@@ -111,6 +115,38 @@ impl TxVirtio {
                         retry_write = true;
                         break;
                     }
+
+                    // EIO means the tap refused the frame, typically because
+                    // the device is down or its carrier is not up yet (e.g. a
+                    // snapshot-resumed guest transmitting before host tap
+                    // wiring has settled). Returning an error here tears down
+                    // the net worker and the VM exits, so one transiently
+                    // unready host tap becomes guest death. Real hardware
+                    // drops the frame and lets the guest stack retransmit; do
+                    // the same: consume the chain as a dropped frame and keep
+                    // the queue alive.
+                    if e.raw_os_error() == Some(libc::EIO) {
+                        self.dropped_frames += Wrapping(1);
+                        // Log the first drop, then sample, so a persistently
+                        // down tap cannot flood the log at line rate.
+                        if self.dropped_frames.0 == 1 || self.dropped_frames.0 % 1000 == 0 {
+                            warn!(
+                                "net: tx: tap refused frame with EIO; dropping instead of failing the VM (total dropped: {}): {}",
+                                self.dropped_frames.0, e
+                            );
+                        }
+                        queue
+                            .add_used(desc_chain.memory(), desc_chain.head_index(), 0)
+                            .map_err(NetQueuePairError::QueueAddUsed)?;
+                        if !queue
+                            .enable_notification(mem)
+                            .map_err(NetQueuePairError::QueueEnableNotification)?
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+
                     error!("net: tx: failed writing to tap: {}", e);
                     return Err(NetQueuePairError::WriteTap(e));
                 }
