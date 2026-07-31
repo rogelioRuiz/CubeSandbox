@@ -24,6 +24,7 @@ var netlinkRouteListFiltered = netlink.RouteListFiltered
 var netlinkRouteList = netlink.RouteList
 var netlinkLinkByIndex = netlink.LinkByIndex
 var netlinkLinkByName = netlink.LinkByName
+var netlinkLinkSetUp = netlink.LinkSetUp
 var netlinkLinkList = netlink.LinkList
 var netlinkLinkDel = netlink.LinkDel
 var netlinkNeighList = netlink.NeighList

@@ -607,6 +607,9 @@ func TestEnsureReleaseEnsureReusesTapFromPool(t *testing.T) {
 }
 
 func TestGetTapFileRestoresMissingFD(t *testing.T) {
+	oldEnsureReady := ensureTapLinkReadyFunc
+	ensureTapLinkReadyFunc = func(_ string, expectIfindex int) (int, error) { return expectIfindex, nil }
+	t.Cleanup(func() { ensureTapLinkReadyFunc = oldEnsureReady })
 	oldList := listCubeTapsFunc
 	oldRestore := restoreTapFunc
 	oldOpen := openTapFdByNameFunc
@@ -725,6 +728,9 @@ func TestGetTapFileRestoresMissingFD(t *testing.T) {
 // but falls through to the restoreTap recovery path, which re-validates and
 // retries fd acquisition so the sandbox create self-heals.
 func TestGetTapFileHotPathOpenFailureSelfHeals(t *testing.T) {
+	oldEnsureReady := ensureTapLinkReadyFunc
+	ensureTapLinkReadyFunc = func(_ string, expectIfindex int) (int, error) { return expectIfindex, nil }
+	t.Cleanup(func() { ensureTapLinkReadyFunc = oldEnsureReady })
 	oldList := listCubeTapsFunc
 	oldRestore := restoreTapFunc
 	oldOpen := openTapFdByNameFunc
