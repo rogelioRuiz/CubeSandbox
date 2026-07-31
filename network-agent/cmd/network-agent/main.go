@@ -55,6 +55,7 @@ func main() {
 		logRollSize    = flag.Int("log-roll-size", defaultRollSizeMB, "network-agent log files roll size(MB)")
 		pprofListen    = flag.String("pprof-listen", "", "optional pprof/debug http listen address (e.g. 127.0.0.1:6060); empty disables profiling")
 		// Route-aware egress options.
+		tapInitNum       = flag.Int("tap-init-num", defaultCfg.TapInitNum, "warm tap pool size; 0 disables the pool (every sandbox gets a freshly created tap). Overrides the Cubelet config.toml value when set explicitly")
 		cubeRouterEnable = flag.Bool("cube-router-enable", defaultCfg.CubeRouterEnable, "enable cube-router route-aware egress")
 		cubeRouterCIDR   = flag.String("cube-router-cidr", defaultCfg.CubeRouterCIDR, "optional cube-router IPv4 CIDR; empty derives addresses from sandbox CIDR")
 		cubeRouterMAC    = flag.String("cube-router-mac-addr", defaultCfg.CubeRouterMacAddr, "cube-router MAC address")
@@ -120,6 +121,12 @@ func main() {
 	}
 	if overrides["host-proxy-bind-ip"] {
 		cfg.HostProxyBindIP = *hostProxyBind
+	}
+	if overrides["tap-init-num"] {
+		// Explicit-set detection via flag.Visit means `--tap-init-num 0`
+		// (disable the pool) is expressible — the TOML overlay cannot express
+		// 0 because LoadConfigFromCubeletTOML only applies non-zero values.
+		cfg.TapInitNum = *tapInitNum
 	}
 	if overrides["cube-router-enable"] {
 		cfg.CubeRouterEnable = *cubeRouterEnable
