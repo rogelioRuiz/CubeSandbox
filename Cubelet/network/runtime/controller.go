@@ -585,6 +585,49 @@ func (s *NetworkController) UpdateNetworkPolicy(ctx context.Context, req *Update
 	return nil
 }
 
+// GetNetworkPolicy returns the egress policy this node currently enforces for
+// a sandbox, together with the datapath policy generation.
+//
+// Both halves are read from the node itself: the policy from the controller
+// state, which is only written once CubeVS accepted it, and the generation
+// from the sandbox's live TAP metadata. That is the point of the call, because
+// the create spec a caller could read instead is written best effort and can
+// disagree with what the datapath enforces.
+//
+// The per-sandbox lock is held so a read cannot observe a policy update
+// halfway between CubeEgress and CubeVS.
+func (s *NetworkController) GetNetworkPolicy(_ context.Context, req *GetNetworkPolicyRequest) (*GetNetworkPolicyResponse, error) {
+	if req == nil || req.SandboxID == "" {
+		return nil, fmt.Errorf("sandboxID is required")
+	}
+	unlock := func() {}
+	if s.locks != nil {
+		unlock = s.locks.Lock(req.SandboxID)
+	}
+	defer unlock()
+
+	s.mu.Lock()
+	state, ok := s.states[req.SandboxID]
+	var (
+		cfg     *CubeNetworkConfig
+		ifindex int
+	)
+	if ok {
+		cfg = cloneCubeNetworkConfig(state.CubeNetworkConfig)
+		ifindex = state.TapIfIndex
+	}
+	s.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("%w: sandbox %q", ErrNetworkNotActive, req.SandboxID)
+	}
+
+	tap, err := s.cubevsAdapter.GetTAPDevice(uint32(ifindex))
+	if err != nil {
+		return nil, fmt.Errorf("read CubeVS tap metadata for sandbox %s: %w", req.SandboxID, err)
+	}
+	return &GetNetworkPolicyResponse{CubeNetworkConfig: cfg, Generation: tap.PolicyVersion}, nil
+}
+
 // createState builds the network for a sandbox. It does NOT hold s.mu across
 // the heavy work: the global mutex is only taken briefly inside acquireTap /
 // releaseAcquiredTap / cleanupConflictingTap to mutate the in-memory pools and

@@ -421,6 +421,106 @@ func UpdateSandboxNetworkPolicy(ctx context.Context, sandboxID string, cfg *cube
 	})
 }
 
+// GetSandboxNetworkPolicy reads back the egress policy the node has installed
+// for a running sandbox, plus the datapath policy generation.
+//
+// The policy is the one the runtime actually applied, so it carries the
+// resolver allow-out entries the runtime folds in on top of what the user
+// authored.
+func GetSandboxNetworkPolicy(ctx context.Context, sandboxID string) (*cubebox.CubeNetworkConfig, uint32, error) {
+	if dnm == nil || dnm.tapPlugin == nil || dnm.tapPlugin.networkRuntime == nil {
+		return nil, 0, fmt.Errorf("network runtime is not initialized")
+	}
+	if sandboxID == "" {
+		return nil, 0, fmt.Errorf("sandbox id is empty")
+	}
+	rsp, err := dnm.tapPlugin.networkRuntime.GetNetworkPolicy(ctx, &networkruntime.GetNetworkPolicyRequest{
+		SandboxID: sandboxID,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return mapRuntimeCubeNetworkConfig(rsp.CubeNetworkConfig), rsp.Generation, nil
+}
+
+// mapRuntimeCubeNetworkConfig converts the runtime's policy back into the wire
+// type, the inverse of mapRunRequestCubeNetworkConfig.
+func mapRuntimeCubeNetworkConfig(in *networkruntime.CubeNetworkConfig) *cubebox.CubeNetworkConfig {
+	if in == nil {
+		return nil
+	}
+	out := &cubebox.CubeNetworkConfig{
+		AllowOut: append([]string(nil), in.AllowOut...),
+		DenyOut:  append([]string(nil), in.DenyOut...),
+		Rules:    mapRuntimeEgressRules(in.Rules),
+	}
+	if in.AllowInternetAccess != nil {
+		allowInternetAccess := *in.AllowInternetAccess
+		out.AllowInternetAccess = &allowInternetAccess
+	}
+	return out
+}
+
+func mapRuntimeEgressRules(in []*networkruntime.EgressRule) []*cubebox.EgressRule {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*cubebox.EgressRule, 0, len(in))
+	for _, r := range in {
+		if r == nil {
+			continue
+		}
+		out = append(out, &cubebox.EgressRule{
+			Name:   r.Name,
+			Match:  mapRuntimeEgressRuleMatch(r.Match),
+			Action: mapRuntimeEgressRuleAction(r.Action),
+		})
+	}
+	return out
+}
+
+func mapRuntimeEgressRuleMatch(in *networkruntime.EgressRuleMatch) *cubebox.EgressRuleMatch {
+	if in == nil {
+		return nil
+	}
+	out := &cubebox.EgressRuleMatch{
+		Sni:    in.SNI,
+		Host:   in.Host,
+		Method: append([]string(nil), in.Method...),
+		Path:   in.Path,
+		Scheme: in.Scheme,
+	}
+	if in.Port != nil {
+		p := int32(*in.Port)
+		out.Port = &p
+	}
+	return out
+}
+
+func mapRuntimeEgressRuleAction(in *networkruntime.EgressRuleAction) *cubebox.EgressRuleAction {
+	if in == nil {
+		return nil
+	}
+	out := &cubebox.EgressRuleAction{
+		Allow: in.Allow,
+		Audit: in.Audit,
+	}
+	if len(in.Inject) > 0 {
+		out.Inject = make([]*cubebox.EgressRuleInject, 0, len(in.Inject))
+		for _, inj := range in.Inject {
+			if inj == nil {
+				continue
+			}
+			out.Inject = append(out.Inject, &cubebox.EgressRuleInject{
+				Header: inj.Header,
+				Secret: inj.Secret,
+				Format: inj.Format,
+			})
+		}
+	}
+	return out
+}
+
 // hostDNSAllowOutCIDRs resolves the node's default DNS servers as allow-out
 // CIDRs. The runtime only needs this for sandboxes created before it started
 // recording its own resolver list; those it recorded win. Per-container DNS

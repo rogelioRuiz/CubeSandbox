@@ -35,6 +35,10 @@ type NetworkRuntime interface {
 	// returns ErrNetworkNotActive when the sandbox has no active network, which
 	// callers map to a "not running" client error.
 	UpdateNetworkPolicy(ctx context.Context, req *UpdateNetworkPolicyRequest) error
+	// GetNetworkPolicy returns the egress policy the node has installed for a
+	// running sandbox plus its datapath policy generation. It returns
+	// ErrNetworkNotActive on the same condition UpdateNetworkPolicy does.
+	GetNetworkPolicy(ctx context.Context, req *GetNetworkPolicyRequest) (*GetNetworkPolicyResponse, error)
 	// ListTaps returns the TAP pool state machine snapshot used by diagnostics.
 	ListTaps(ctx context.Context, req *ListTapsRequest) (*ListTapsResponse, error)
 	// Health reports whether the runtime process can still serve requests.
