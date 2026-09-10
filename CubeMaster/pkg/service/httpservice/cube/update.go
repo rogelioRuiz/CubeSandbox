@@ -92,3 +92,35 @@ func handleSandboxNetworkAction(c *gin.Context) {
 	}
 	common.WriteAPI(c, res)
 }
+
+// handleSandboxNetworkGetAction serves GET /cube/sandbox/network, which reads
+// the egress policy back from the node the sandbox runs on.
+func handleSandboxNetworkGetAction(c *gin.Context) {
+	rt := CubeLog.GetTraceInfo(c.Request.Context())
+
+	req := &types.GetNetworkRequest{
+		RequestID:    c.Query("requestID"),
+		SandboxID:    c.Query("sandbox_id"),
+		InstanceType: c.Query("instance_type"),
+	}
+	if req.RequestID == "" {
+		req.RequestID = uuid.New().String()
+	}
+	if req.InstanceType == "" {
+		req.InstanceType = cubebox.InstanceType_cubebox.String()
+	}
+	rt.RequestID = req.RequestID
+	rt.InstanceID = req.SandboxID
+	rt.InstanceType = req.InstanceType
+
+	ctx := log.WithLogger(c.Request.Context(), log.G(c.Request.Context()).WithFields(map[string]interface{}{
+		"RequestId":    req.RequestID,
+		"InstanceId":   req.SandboxID,
+		"InstanceType": req.InstanceType,
+	}))
+	res := sandbox.GetNetwork(CubeLog.WithRequestTrace(ctx, rt), req)
+	if res != nil && res.Ret != nil {
+		rt.RetCode = int64(res.Ret.RetCode)
+	}
+	common.WriteAPI(c, res)
+}

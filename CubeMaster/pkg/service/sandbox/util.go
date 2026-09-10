@@ -423,6 +423,84 @@ func mapEgressRuleAction(in *types.EgressRuleAction) *cubebox.EgressRuleAction {
 	return out
 }
 
+// mapCubeNetworkConfigFromCubelet converts a policy read back from a node into
+// the master's wire type, the inverse of mapCubeNetworkConfig.
+func mapCubeNetworkConfigFromCubelet(in *cubebox.CubeNetworkConfig) *types.CubeNetworkConfig {
+	if in == nil {
+		return nil
+	}
+	out := &types.CubeNetworkConfig{
+		AllowOut: append([]string(nil), in.GetAllowOut()...),
+		DenyOut:  append([]string(nil), in.GetDenyOut()...),
+		Rules:    mapEgressRulesFromCubelet(in.GetRules()),
+	}
+	if in.AllowInternetAccess != nil {
+		allowInternetAccess := in.GetAllowInternetAccess()
+		out.AllowInternetAccess = &allowInternetAccess
+	}
+	return out
+}
+
+func mapEgressRulesFromCubelet(in []*cubebox.EgressRule) []*types.EgressRule {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*types.EgressRule, 0, len(in))
+	for _, r := range in {
+		if r == nil {
+			continue
+		}
+		out = append(out, &types.EgressRule{
+			Name:   r.GetName(),
+			Match:  mapEgressRuleMatchFromCubelet(r.GetMatch()),
+			Action: mapEgressRuleActionFromCubelet(r.GetAction()),
+		})
+	}
+	return out
+}
+
+func mapEgressRuleMatchFromCubelet(in *cubebox.EgressRuleMatch) *types.EgressRuleMatch {
+	if in == nil {
+		return nil
+	}
+	out := &types.EgressRuleMatch{
+		SNI:    in.Sni,
+		Host:   in.Host,
+		Method: append([]string(nil), in.GetMethod()...),
+		Path:   in.Path,
+		Scheme: in.Scheme,
+	}
+	if in.Port != nil {
+		p := int(in.GetPort())
+		out.Port = &p
+	}
+	return out
+}
+
+func mapEgressRuleActionFromCubelet(in *cubebox.EgressRuleAction) *types.EgressRuleAction {
+	if in == nil {
+		return nil
+	}
+	out := &types.EgressRuleAction{
+		Allow: in.GetAllow(),
+		Audit: in.Audit,
+	}
+	if len(in.GetInject()) > 0 {
+		out.Inject = make([]*types.EgressRuleInject, 0, len(in.GetInject()))
+		for _, inj := range in.GetInject() {
+			if inj == nil {
+				continue
+			}
+			out.Inject = append(out.Inject, &types.EgressRuleInject{
+				Header: inj.GetHeader(),
+				Secret: inj.GetSecret(),
+				Format: inj.Format,
+			})
+		}
+	}
+	return out
+}
+
 func formatConstructCubeNetworkConfig(in *cubebox.CubeNetworkConfig) string {
 	if in == nil {
 		return "allow_internet_access=default(true) allow_out=[] deny_out=[] rules=0"

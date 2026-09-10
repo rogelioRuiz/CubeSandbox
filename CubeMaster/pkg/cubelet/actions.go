@@ -239,6 +239,22 @@ func UpdateWithTimeout(ctx context.Context, calleeEp string,
 	return c.Update(ctx, req)
 }
 
+// GetSandboxNetwork reads back the egress policy the node has installed for a
+// sandbox, together with the datapath policy generation.
+func GetSandboxNetwork(ctx context.Context, calleeEp string,
+	req *cubebox.GetSandboxNetworkRequest) (*cubebox.GetSandboxNetworkResponse, error) {
+	conn, err := grpcconn.GetWorkerConn(ctx, calleeEp)
+	if err != nil {
+		return nil, ret.Err(errorcode.ErrorCode_ConnHostFailed, err.Error())
+	}
+	defer conn.Close()
+	c := cubebox.NewCubeboxMgrClient(conn.Value())
+	ctx, cancel := context.WithTimeout(context.Background(),
+		time.Duration(config.GetConfig().CubeletConf.CommonTimeoutInsec)*time.Second)
+	defer cancel()
+	return c.GetSandboxNetwork(ctx, req)
+}
+
 func Exec(ctx context.Context, calleeEp string,
 	req *cubebox.ExecCubeSandboxRequest) (*cubebox.ExecCubeSandboxResponse, error) {
 	conn, err := grpcconn.GetWorkerConn(ctx, calleeEp)
