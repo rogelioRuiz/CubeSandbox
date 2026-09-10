@@ -848,6 +848,25 @@ type UpdateNetworkRes struct {
 	Ret       *Ret   `json:"ret,omitempty"`
 }
 
+// GetNetworkRequest is the wire shape for GET /cube/sandbox/network.
+type GetNetworkRequest struct {
+	RequestID    string `json:"requestID"`
+	SandboxID    string `json:"sandboxID"`
+	InstanceType string `json:"instanceType"`
+}
+
+// GetNetworkRes is the master-side response for GET /cube/sandbox/network.
+// CubeNetworkConfig and Generation come from the node that runs the sandbox,
+// never from the stored create spec, so Source records where they were read.
+type GetNetworkRes struct {
+	RequestID         string             `json:"requestID,omitempty"`
+	SandboxID         string             `json:"sandboxID,omitempty"`
+	CubeNetworkConfig *CubeNetworkConfig `json:"cube_network_config,omitempty"`
+	Generation        uint32             `json:"generation"`
+	Source            string             `json:"source,omitempty"`
+	Ret               *Ret               `json:"ret,omitempty"`
+}
+
 // SetTimeoutRequest is the wire shape for POST /cube/sandbox/timeout.
 // Mirrors CubeAPI's SandboxTimeoutRequest field-for-field. `timeout` is the
 // new idle TTL in seconds counted from "now": the master refreshes the
