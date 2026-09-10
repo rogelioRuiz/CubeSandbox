@@ -100,7 +100,7 @@ fn build_sandbox_routes(state: &AppState, auth_configured: bool) -> Router<AppSt
         )
         .route(
             "/sandboxes/:sandboxID/network",
-            put(sandboxes::update_sandbox_network),
+            put(sandboxes::update_sandbox_network).get(sandboxes::get_sandbox_network),
         )
         .route(
             "/sandboxes/:sandboxID/timeout",

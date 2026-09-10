@@ -16,7 +16,8 @@ use crate::{
     models::{
         ApiError, ConnectSandbox, ListSandboxesQuery, ListSandboxesV2Query, NewSandbox,
         RefreshRequest, ResumedSandbox, Sandbox, SandboxDetail, SandboxLogsQuery,
-        SandboxLogsV2Query, SandboxLogsV2Response, SetTimeoutRequest, UpdateSandboxNetworkRequest,
+        SandboxLogsV2Query, SandboxLogsV2Response, SandboxNetworkView, SetTimeoutRequest,
+        UpdateSandboxNetworkRequest,
     },
     state::AppState,
 };
@@ -567,6 +568,38 @@ pub async fn update_sandbox_network(
         )
         .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── GET /sandboxes/:sandboxID/network ────────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/sandboxes/{sandboxID}/network",
+    params(
+        ("sandboxID" = String, Path, description = "Sandbox identifier")
+    ),
+    responses(
+        (status = 200, description = "Egress policy the node is enforcing", body = SandboxNetworkView),
+        (status = 404, description = "Sandbox not found", body = ApiError),
+        (status = 409, description = "Sandbox is not running", body = ApiError),
+        (status = 500, description = "Unexpected backend error", body = ApiError)
+    )
+)]
+pub async fn get_sandbox_network(
+    State(state): State<AppState>,
+    Path(sandbox_id): Path<String>,
+) -> AppResult<impl IntoResponse> {
+    state
+        .logger
+        .log(
+            LogEvent::new(LogLevel::Debug, "api.request")
+                .field("handler", "get_sandbox_network")
+                .field("sandbox_id", &sandbox_id),
+        )
+        .await;
+
+    let view = state.services.sandboxes.get_network(&sandbox_id).await?;
+    Ok(Json(view))
 }
 
 // ─── POST /sandboxes/:sandboxID/refreshes ─────────────────────────────────────
