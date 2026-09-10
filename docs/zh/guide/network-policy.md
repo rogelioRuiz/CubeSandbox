@@ -294,6 +294,42 @@ curl -X PUT "$CUBE_API/sandboxes/$SANDBOX_ID/network" \
 - **已经学到的 DNS IP 会比产生它的域名规则活得更久。** 从 `allow_out` 里删掉一个域名后，新的 IP 会立刻停止被学习，但此前已为它学到的 IP 会一直放行到 DNS TTL 过期。要想及时收回对某个域名的访问，需要配合 `allow_internet_access=false` 的策略和较短的解析 TTL。
 - **更新在多个平面之间不是事务性的。** 先更新 CubeEgress，再更新 CubeVS，最后才写持久化状态，因此中途失败时沙箱所处的状态不会比「新旧策略的并集」更宽松。重放同一个请求即可收敛；Cubelet 重启后会重新应用最后一次成功持久化的策略。
 
+## 读取运行中沙箱的策略
+
+`GET /sandboxes/{sandboxID}/network` 返回沙箱当前实际运行的策略，以及读取时的数据面代际。
+
+```bash
+curl "$CUBE_API/sandboxes/$SANDBOX_ID/network"
+```
+
+```json
+{
+  "policy": {
+    "allowInternetAccess": false,
+    "allowOut": ["api.example.com", "169.254.0.53/32"],
+    "denyOut": ["0.0.0.0/0"],
+    "rules": []
+  },
+  "generation": 7,
+  "source": "node"
+}
+```
+
+这个响应有三点是刻意设计的：
+
+- **它来自节点**，而不是存储的创建 spec。更新成功后 CubeMaster 只是尽力重写那份
+  spec，因此只读 spec 可能描述出一份数据面从未接受过的策略。`source` 字段记录了
+  这一点，取值恒为 `node`。
+- **它是实际生效的策略。** 节点会把沙箱的 DNS resolver 折进 `allowOut`，否则域名
+  规则根本无法解析，这些条目也会出现在这里。它不是上一次更新请求体的副本。
+- **`generation` 就是 `mvm_meta.policy_version`**，与更新在 CubeEgress 和 CubeVS
+  map 都写入新策略后递增的是同一个计数器。轮询到它变化，就能确认自己那次 `PUT`
+  正是当前生效的策略。
+
+没有活跃网络的沙箱返回 409，与更新接口对同一情况的处理一致。各 SDK 分别暴露为
+`sandbox.get_network()`（Python）、`sandbox.getNetwork()`（Node）和
+`sandbox.GetNetwork(ctx)`（Go）。
+
 ## `from_cube` 如何判断和转发
 
 `from_cube` 是挂在沙箱 TAP ingress 上的 TC eBPF 程序。每个沙箱发出的包都会先进入这里。处理顺序可以理解为下面几个阶段。

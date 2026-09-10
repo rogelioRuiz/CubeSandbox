@@ -294,6 +294,46 @@ Two consequences worth planning for:
 - **Existing DNS-learned IPs outlive the domain rule that created them.** Removing a domain from `allow_out` stops new IPs from being learned immediately, but IPs already learned for it remain allowed until their DNS TTL expires. Revoking access to a domain promptly requires an `allow_internet_access=false` policy plus a short resolver TTL.
 - **The update is not transactional across planes.** CubeEgress is updated before CubeVS, and the durable state is written last, so a failure leaves the sandbox on a state no more permissive than the old and new policies combined. Replaying the same request converges; a Cubelet restart re-applies the last policy that was successfully persisted.
 
+## Reading the policy of a running sandbox
+
+`GET /sandboxes/{sandboxID}/network` returns the policy the sandbox is running
+under and the datapath generation it was read at.
+
+```bash
+curl "$CUBE_API/sandboxes/$SANDBOX_ID/network"
+```
+
+```json
+{
+  "policy": {
+    "allowInternetAccess": false,
+    "allowOut": ["api.example.com", "169.254.0.53/32"],
+    "denyOut": ["0.0.0.0/0"],
+    "rules": []
+  },
+  "generation": 7,
+  "source": "node"
+}
+```
+
+Three things about the answer are deliberate:
+
+- **It is read from the node**, not from the stored create spec. CubeMaster
+  rewrites that spec after a successful update on a best-effort basis, so a
+  spec-only answer could describe a policy the datapath never accepted. The
+  `source` field records this and is always `node`.
+- **It is the applied policy.** The node folds the sandbox's DNS resolvers into
+  `allowOut` so domain rules can resolve at all, and they appear here. It is
+  not a copy of the last update body.
+- **`generation` is `mvm_meta.policy_version`**, the same counter an update
+  bumps once both CubeEgress and the CubeVS maps hold the new policy. Polling
+  until it advances is how a client confirms its own `PUT` is the one being
+  enforced.
+
+A sandbox that has no active network answers 409, the same condition the update
+path reports that way. The SDKs expose it as `sandbox.get_network()` (Python),
+`sandbox.getNetwork()` (Node) and `sandbox.GetNetwork(ctx)` (Go).
+
 ## How `from_cube` decides and forwards
 
 `from_cube` is the TC eBPF program attached to sandbox TAP ingress. Every packet sent by the sandbox enters this program first. You can think of it in these stages:
