@@ -97,6 +97,12 @@ Two things set this apart from the create-time modes:
 This is a CubeSandbox extension, so the example uses the `cubesandbox` SDK
 (`sandbox.updateNetwork(...)` in Node, `sandbox.UpdateNetwork(...)` in Go).
 
+To confirm an update landed, read the policy back with
+`sandbox.get_network()` (`getNetwork()` in Node, `GetNetwork(ctx)` in Go). It
+answers from the node the sandbox runs on, and its `generation` advances on
+every accepted update, so it distinguishes "my policy is live" from "my request
+was accepted and something else changed it since".
+
 The script walks four scenarios, in order: an IP allow list, a live connection
 carried across a revoking update, a domain allow list, and switching on L7
 interception mid-run. Unlike E2B — where `network.rules` is create-only — L7
@@ -195,6 +201,7 @@ that is passed to Cubelet when the VM is created:
 | `network.allow_out` | `AllowOut` (CIDR list) | Forward only matching destinations |
 | `network.deny_out` | `DenyOut` (CIDR list) | Drop matching destinations |
 | `update_network(...)` | `UpdateNetworkPolicy` | Converge the live policy maps, then re-evaluate established connections |
+| `get_network()` | `GetSandboxNetwork` | Read the installed policy and its generation back from the node |
 
 All enforcement happens in the tap network device of the KVM MicroVM, so
 policies are applied at the kernel level and cannot be bypassed from inside
