@@ -61,7 +61,7 @@ CubeVS 的基础 IP 策略优先级是：
 也就是说，策略优先级是：**allow > deny > default allow**。
 
 ::: warning 内置内部网段保护
-当 `allow_internet_access` 不是 `false` 时，CubeVS 会默认把沙箱私有网段和宿主机内部网段加入 `deny_out`，包括 `10.0.0.0/8`、`127.0.0.0/8`、`169.254.0.0/16`、`172.16.0.0/12`、`192.168.0.0/16`。这样可以避免工作负载借公共出网策略访问 Cube 内部基础设施。
+当 `allow_internet_access` 不是 `false` 时，CubeVS 会默认把沙箱私有网段和宿主机内部网段加入 `deny_out`，包括 `0.0.0.0/8`、`10.0.0.0/8`、`100.64.0.0/10`、`127.0.0.0/8`、`169.254.0.0/16`、`172.16.0.0/12`、`192.168.0.0/16`。这样可以避免工作负载借公共出网策略访问 Cube 内部基础设施。这些条目在 `deny_out` 中带有 invariant 标记，DNS 学习据此把它们与普通 deny 规则区分开。
 
 当 `allow_internet_access=false` 时，后端安装的是 `0.0.0.0/0` 的 deny-all；显式 `allow_out` 和 L7 目标仍然可以优先放行。
 :::
@@ -431,10 +431,11 @@ DNS 响应从外部回来时，先进入宿主机网卡上的 `from_world`：
 3. 只有 `ifindex_to_mvmmeta[].dns_policy_flags` 带 learning flag 时才执行学习，并且响应必须匹配之前 `dns_query_track` 中的 pending query。
 4. 只学习 IPv4 A 记录；AAAA / IPv6 不会写入 `allow_out_v2`。
 5. 最多处理响应中的前 `8` 个 answer。
-6. 学到的 IP 以 `/32` 写入 `allow_out_v2[ifindex]`，`expires_at_ns` 按 DNS TTL 计算。
-7. 如果原 DNS allow 规则带 `L7_REQUIRED`，学习出的 IP 也继承这个标记。
-8. 学习完成或失败后，pending query 会被删除。
-9. 响应包继续做反向 NAT，返回沙箱。
+6. 如果解析结果落在 invariant 始终拒绝网段内，则跳过学习，除非已有覆盖该地址的静态（不过期）`allow_out` 条目。学习条目的优先级高于 `deny_out`，否则一条解析到私有地址的域名规则会在一个 TTL 内打开宿主机网络。
+7. 学到的 IP 以 `/32` 写入 `allow_out_v2[ifindex]`，`expires_at_ns` 按 DNS TTL 计算。
+8. 如果原 DNS allow 规则带 `L7_REQUIRED`，学习出的 IP 也继承这个标记。
+9. 学习完成或失败后，pending query 会被删除。
+10. 响应包继续做反向 NAT，返回沙箱。
 
 如果同一个 IP 已经是静态 `allow_out`，DNS 学习不会把它变成会过期的临时条目；静态条目会保持不过期，同时合并 flags。
 

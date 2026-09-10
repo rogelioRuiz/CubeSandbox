@@ -61,7 +61,7 @@ CubeVS evaluates the base IP policy in this order:
 In short, policy priority is: **allow > deny > default allow**.
 
 ::: warning Built-in protection for internal CIDRs
-When `allow_internet_access` is not `false`, CubeVS adds sandbox-private and host-internal CIDRs to `deny_out` by default: `10.0.0.0/8`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, and `192.168.0.0/16`. This prevents workloads from using public egress policy to reach Cube infrastructure.
+When `allow_internet_access` is not `false`, CubeVS adds sandbox-private and host-internal CIDRs to `deny_out` by default: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, and `192.168.0.0/16`. This prevents workloads from using public egress policy to reach Cube infrastructure. These rows are marked as invariant in `deny_out`, which is what lets DNS learning tell them apart from an ordinary deny rule.
 
 When `allow_internet_access=false`, the backend installs `0.0.0.0/0` as deny-all; explicit `allow_out` and L7 targets can still take precedence.
 :::
@@ -431,10 +431,11 @@ DNS responses from the external network enter the host-NIC `from_world` program:
 3. Learning runs only when `ifindex_to_mvmmeta[].dns_policy_flags` has the learning flag and requires the response to match an existing pending query in `dns_query_track`.
 4. Only IPv4 A records are learned; AAAA / IPv6 answers are not inserted into `allow_out_v2`.
 5. At most the first `8` answers in the response are processed.
-6. Learned IPs are inserted as `/32` entries into `allow_out_v2[ifindex]`, with `expires_at_ns` derived from the DNS TTL.
-7. If the original DNS allow rule had `L7_REQUIRED`, the learned IP inherits that flag.
-8. The pending query is deleted after learning succeeds or fails.
-9. The response packet continues through reverse NAT back to the sandbox.
+6. An answer that falls inside one of the invariant always-denied ranges is skipped, unless a static (non-expiring) `allow_out` entry already covers it. Learned entries win over `deny_out`, so without this a domain rule resolving to a private address would open the host network for one TTL.
+7. Learned IPs are inserted as `/32` entries into `allow_out_v2[ifindex]`, with `expires_at_ns` derived from the DNS TTL.
+8. If the original DNS allow rule had `L7_REQUIRED`, the learned IP inherits that flag.
+9. The pending query is deleted after learning succeeds or fails.
+10. The response packet continues through reverse NAT back to the sandbox.
 
 If an IP is already a static `allow_out` entry, DNS learning does not turn it into an expiring temporary entry. The static entry remains non-expiring and flags are merged.
 
