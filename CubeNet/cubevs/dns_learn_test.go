@@ -14,8 +14,17 @@ const dnsLearnTestCaseLen = 12
 type dnsLearnTestEnv struct {
 	program        *ebpf.Program
 	allowOut       *ebpf.Map
+	denyOut        *ebpf.Map
 	queryStore     *ebpf.Map
 	allowInnerSpec *ebpf.MapSpec
+	denyInnerSpec  *ebpf.MapSpec
+}
+
+// denyOutTestEntry is one seeded deny_out row: the CIDR key and the raw value
+// bits the datapath reads (netPolicyValueStatic, optionally | denyFlagInvariant).
+type denyOutTestEntry struct {
+	key   lpmKey
+	value uint32
 }
 
 func loadDNSLearnTestEnv(t *testing.T) *dnsLearnTestEnv {
@@ -26,14 +35,19 @@ func loadDNSLearnTestEnv(t *testing.T) *dnsLearnTestEnv {
 		t.Fatalf("load dns learn test spec: %v", err)
 	}
 	allowSpec := spec.Maps["allow_out_v3"]
+	denySpec := spec.Maps["deny_out"]
 	if allowSpec == nil || allowSpec.InnerMap == nil {
 		t.Fatal("allow_out_v3 spec or inner template missing")
 	}
+	if denySpec == nil || denySpec.InnerMap == nil {
+		t.Fatal("deny_out spec or inner template missing")
+	}
 	allowInnerSpec := allowSpec.InnerMap.Copy()
+	denyInnerSpec := denySpec.InnerMap.Copy()
 
 	for name, mapSpec := range spec.Maps {
 		switch name {
-		case ".rodata", "allow_out_v3", "test_query_store":
+		case ".rodata", "allow_out_v3", "deny_out", "test_query_store":
 			mapSpec.Pinning = ebpf.PinNone
 		default:
 			delete(spec.Maps, name)
@@ -52,13 +66,42 @@ func loadDNSLearnTestEnv(t *testing.T) *dnsLearnTestEnv {
 	env := &dnsLearnTestEnv{
 		program:        coll.Programs["test_dns_learn"],
 		allowOut:       coll.Maps["allow_out_v3"],
+		denyOut:        coll.Maps["deny_out"],
 		queryStore:     coll.Maps["test_query_store"],
 		allowInnerSpec: allowInnerSpec,
+		denyInnerSpec:  denyInnerSpec,
 	}
-	if env.program == nil || env.allowOut == nil || env.queryStore == nil {
+	if env.program == nil || env.allowOut == nil || env.denyOut == nil || env.queryStore == nil {
 		t.Fatal("loaded dns learn program or maps missing")
 	}
 	return env
+}
+
+// attachDenyOut gives the sandbox a deny_out inner map seeded with entries,
+// mirroring what UpdateTAPDevicePolicy installs. Call it before runDNSLearn:
+// dns_learn_response_ip consults deny_out before it learns anything.
+func attachDenyOut(t *testing.T, env *dnsLearnTestEnv, ifindex uint32, entries ...denyOutTestEntry) {
+	t.Helper()
+
+	innerSpec := env.denyInnerSpec.Copy()
+	innerSpec.Name = "deny_dns_learn"
+	innerSpec.Pinning = ebpf.PinNone
+	inner, err := ebpf.NewMap(innerSpec)
+	if err != nil {
+		if bpfTestUnavailable(err) {
+			t.Skipf("kernel BPF LPM trie unavailable: %v", err)
+		}
+		t.Fatalf("create deny inner: %v", err)
+	}
+	t.Cleanup(func() { _ = inner.Close() })
+	if err := env.denyOut.Put(&ifindex, inner); err != nil {
+		t.Fatalf("attach deny inner map: %v", err)
+	}
+	for i, e := range entries {
+		if err := inner.Update(&e.key, &e.value, ebpf.UpdateAny); err != nil {
+			t.Fatalf("seed deny inner entry %d: %v", i, err)
+		}
+	}
 }
 
 // runDNSLearn drives dns_learn_response_ip with the given query against the
@@ -414,5 +457,90 @@ func TestDNSLearnRefreshRenewsTTLMergesFlagsAndOverwritesScheme(t *testing.T) {
 	}
 	if value.Scheme != L7SchemeHTTPS {
 		t.Fatalf("scheme=%d after refresh, want HTTPS (last write wins)", value.Scheme)
+	}
+}
+
+// TestDNSLearnDenyAllRowStillLearnsPublicAnswer pins the common restricted
+// case: a deny-all policy installs a literal 0.0.0.0/0 row, and that row is
+// NOT invariant. A public answer for an allowed domain must still be learned,
+// otherwise domain rules would stop working under deny-all.
+func TestDNSLearnDenyAllRowStillLearnsPublicAnswer(t *testing.T) {
+	env := loadDNSLearnTestEnv(t)
+	ifindex := uint32(310)
+	ip := mustParseCIDRForTest(t, "192.0.2.110").IP
+
+	attachDenyOut(t, env, ifindex, denyOutTestEntry{
+		key:   mustParseCIDRForTest(t, "0.0.0.0/0"),
+		value: uint32(netPolicyValueStatic),
+	})
+	inner := runDNSLearn(t, env, ifindex, ip, 300, dnsQueryTrackValue{Flags: 0, PortCount: 0})
+
+	if _, ok := lookupAllowV3(t, inner, lpmKeyV3{Prefixlen: 32, IP: ip, Port: 0}); !ok {
+		t.Fatal("public answer under the deny-all row was not learned")
+	}
+}
+
+// TestDNSLearnInvariantDeniedAnswerIsSkipped is the DNS-rebinding regression
+// test: a domain rule whose answer points into an always-denied range must not
+// produce an allow_out_v3 entry. allow_out_v3 wins over deny_out in
+// classify_egress_flow, so learning such an answer would hand the sandbox the
+// node network for the entry's TTL.
+func TestDNSLearnInvariantDeniedAnswerIsSkipped(t *testing.T) {
+	env := loadDNSLearnTestEnv(t)
+	ifindex := uint32(311)
+	ip := mustParseCIDRForTest(t, "10.43.0.10").IP
+
+	attachDenyOut(t, env, ifindex,
+		denyOutTestEntry{
+			key:   mustParseCIDRForTest(t, "0.0.0.0/0"),
+			value: uint32(netPolicyValueStatic),
+		},
+		denyOutTestEntry{
+			key:   mustParseCIDRForTest(t, "10.0.0.0/8"),
+			value: uint32(netPolicyValueStatic) | uint32(denyFlagInvariant),
+		},
+	)
+
+	// Plain allow: the /32 any-port entry must not appear.
+	inner := runDNSLearn(t, env, ifindex, ip, 300, dnsQueryTrackValue{Flags: 0, PortCount: 0})
+	if _, ok := lookupAllowV3(t, inner, lpmKeyV3{Prefixlen: 32, IP: ip, Port: 0}); ok {
+		t.Fatal("private answer inside 10.0.0.0/8 was learned as a /32 allow")
+	}
+
+	// L7 allow: the per-port /48 entries must not appear either.
+	inner = runDNSLearn(t, env, ifindex, ip, 300,
+		dnsQueryTrackValue{Flags: uint8(netPolicyFlagL7Required), PortCount: 0})
+	if _, ok := lookupAllowV3(t, inner, lpmKeyV3{Prefixlen: 48, IP: ip, Port: htonsPort(443)}); ok {
+		t.Fatal("private answer inside 10.0.0.0/8 was learned as a /48 L7 allow")
+	}
+}
+
+// TestDNSLearnStaticAllowOverridesInvariantDeny pins the operator escape
+// hatch: an explicit static allow_out_v3 entry covering the address is a
+// deliberate decision (the in-cluster callback rails are exactly this), so the
+// answer is still learned even though an invariant deny row matches it.
+func TestDNSLearnStaticAllowOverridesInvariantDeny(t *testing.T) {
+	env := loadDNSLearnTestEnv(t)
+	ifindex := uint32(312)
+	ip := mustParseCIDRForTest(t, "10.43.0.10").IP
+
+	attachDenyOut(t, env, ifindex, denyOutTestEntry{
+		key:   mustParseCIDRForTest(t, "10.0.0.0/8"),
+		value: uint32(netPolicyValueStatic) | uint32(denyFlagInvariant),
+	})
+
+	staticAllow := allowOutV3Entry{
+		key:   lpmKeyV3{Prefixlen: 32, IP: ip, Port: 0},
+		value: netPolicyValueV3{KeyPrefixlen: 32}, // ExpiresAtNS: 0 = static
+	}
+	inner := runDNSLearn(t, env, ifindex, ip, 300,
+		dnsQueryTrackValue{Flags: 0, PortCount: 0}, staticAllow)
+
+	value, ok := lookupAllowV3(t, inner, lpmKeyV3{Prefixlen: 32, IP: ip, Port: 0})
+	if !ok {
+		t.Fatal("statically allowed private answer was not learned")
+	}
+	if value.ExpiresAtNS != 0 {
+		t.Fatal("static allow lost its zero expiry on DNS refresh")
 	}
 }

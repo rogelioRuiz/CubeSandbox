@@ -439,6 +439,40 @@ func TestAlwaysDeniedSandboxEntriesInitializes(t *testing.T) {
 	}
 }
 
+// TestDenyOutValueFlagsInvariantRows pins which deny_out rows the datapath may
+// treat as never-reachable. Only rows CONTAINED in the always-denied ranges
+// carry denyFlagInvariant; the deny-all 0.0.0.0/0 row a restricted policy
+// installs and ordinary user denies do not, because DNS learning must keep
+// admitting public answers under deny-all.
+func TestDenyOutValueFlagsInvariantRows(t *testing.T) {
+	tests := []struct {
+		cidr      string
+		invariant bool
+	}{
+		{"10.0.0.0/8", true},
+		{"10.43.0.10/32", true},
+		{"100.64.1.0/24", true},
+		{"0.0.0.5", true},
+		{"169.254.169.254", true},
+		{"0.0.0.0/0", false},
+		{"198.51.100.0/24", false},
+		{"8.8.8.8", false},
+	}
+	for _, tt := range tests {
+		key, err := parseCIDR(tt.cidr)
+		if err != nil {
+			t.Fatalf("parse %s: %v", tt.cidr, err)
+		}
+		val := denyOutValue(key)
+		if val&uint32(netPolicyValueStatic) == 0 {
+			t.Errorf("deny_out value for %s lost the static marker: %#x", tt.cidr, val)
+		}
+		if got := val&uint32(denyFlagInvariant) != 0; got != tt.invariant {
+			t.Errorf("deny_out %s invariant=%v, want %v (value %#x)", tt.cidr, got, tt.invariant, val)
+		}
+	}
+}
+
 func repeatedCIDRs(count int) []string {
 	entries := make([]string, count)
 	for i := range entries {

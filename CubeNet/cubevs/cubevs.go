@@ -200,6 +200,11 @@ const (
 	maxL7PortsPerHost = 8
 	// Network policy value marker. Must match src/cubevs.h.
 	netPolicyValueStatic = 1
+	// deny_out value bit marking a row that came from the invariant
+	// always-denied ranges rather than from a user rule or the deny-all
+	// 0.0.0.0/0 row. DNS learning refuses to learn an answer that matches a
+	// flagged row. Must match DENY_FLAG_INVARIANT in src/cubevs.h.
+	denyFlagInvariant = 1 << 1
 	// programs that power CubeVS.
 	programNameFromEnvoy = "from_envoy"
 	programNameFromCube  = "from_cube"

@@ -15,7 +15,9 @@ import (
 const maxNetPolicyEntries = 8192
 
 var alwaysDeniedSandboxCIDRs = []string{
+	"0.0.0.0/8",
 	"10.0.0.0/8",
+	"100.64.0.0/10",
 	"127.0.0.0/8",
 	"169.254.0.0/16",
 	"172.16.0.0/12",
@@ -1095,9 +1097,36 @@ func isValidDNSDomainName(domain string) bool {
 	return true
 }
 
-func populateDenyOutInner(inner *ebpf.Map, entries []denyOutPolicyEntry) error {
+// denyOutValue is the inner-map value a deny row carries. Rows contained in
+// the always-denied ranges also carry denyFlagInvariant so the datapath can
+// tell them apart from user rules and from the deny-all 0.0.0.0/0 row a
+// restricted policy installs; dns_learn_response_ip refuses to learn a DNS
+// answer that matches a flagged row. Containment is what matters, not where
+// the row came from: a user deny of 10.5.0.0/16 is just as invariant as the
+// 10.0.0.0/8 row that covers it.
+func denyOutValue(key lpmKey) uint32 {
 	val := uint32(netPolicyValueStatic)
+	for _, denied := range alwaysDeniedSandboxEntries {
+		if lpmKeyContains(denied.key, key) {
+			val |= denyFlagInvariant
+			break
+		}
+	}
+	return val
+}
+
+// lpmKeyContains reports whether outer covers every address in inner.
+func lpmKeyContains(outer, inner lpmKey) bool {
+	if inner.Prefixlen < outer.Prefixlen {
+		return false
+	}
+	mask := ipMaskToUint32(net.CIDRMask(int(outer.Prefixlen), 32))
+	return inner.IP&mask == outer.IP&mask
+}
+
+func populateDenyOutInner(inner *ebpf.Map, entries []denyOutPolicyEntry) error {
 	for _, entry := range entries {
+		val := denyOutValue(entry.key)
 		if err := inner.Update(&entry.key, &val, ebpf.UpdateAny); err != nil {
 			return fmt.Errorf("inner map update failed: %w, cidr: %s", err, entry.source)
 		}
