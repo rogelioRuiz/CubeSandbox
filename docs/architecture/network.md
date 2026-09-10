@@ -201,7 +201,7 @@ For each outbound packet:
 
 The priority is **allow > deny > default-allow**, so an operator can install a broad deny rule (`0.0.0.0/0`, blocking all internet access) and then punch specific holes with allow rules.
 
-Regardless of policy configuration, CubeVS always denies the following private and link-local ranges so that a sandbox cannot probe the host's internal network or other sandboxes: `10.0.0.0/8`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`.
+Regardless of policy configuration, CubeVS always denies the following private, loopback, link-local and carrier-grade NAT ranges so that a sandbox cannot probe the host's internal network or other sandboxes: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`. Those rows carry an invariant marker in `deny_out`, so DNS learning (§6) can refuse to learn an answer that falls inside them.
 
 ### 5.3 Policy Configuration
 
