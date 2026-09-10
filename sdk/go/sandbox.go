@@ -171,6 +171,26 @@ func (s *Sandbox) UpdateNetwork(ctx context.Context, network UpdateNetworkOption
 	return s.client.doJSON(ctx, http.MethodPut, path, payload, nil, http.StatusNoContent)
 }
 
+// GetNetwork returns the egress policy the sandbox is running under, read
+// back from the node rather than replayed from the last update.
+//
+// Generation advances on every accepted update, so polling until it changes is
+// how a caller confirms an UpdateNetwork took effect.
+//
+// Errors wrap ErrSandboxNotFound (404) or an *APIError for other HTTP errors,
+// including 409 when the sandbox is not running.
+func (s *Sandbox) GetNetwork(ctx context.Context) (NetworkState, error) {
+	if err := s.ensureClient(); err != nil {
+		return NetworkState{}, err
+	}
+	var out NetworkState
+	path := "/sandboxes/" + url.PathEscape(s.SandboxID) + "/network"
+	if err := s.client.doJSON(ctx, http.MethodGet, path, nil, &out, http.StatusOK); err != nil {
+		return NetworkState{}, err
+	}
+	return out, nil
+}
+
 func (s *Sandbox) Kill(ctx context.Context) error {
 	if err := s.ensureClient(); err != nil {
 		return err

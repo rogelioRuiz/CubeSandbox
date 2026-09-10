@@ -12,6 +12,8 @@ export {
   type ListSnapshotsOptions,
   type NetworkOptions,
   type UpdateNetworkOptions,
+  type NetworkPolicy,
+  type NetworkState,
   type LifecycleOptions,
 } from "./sandbox.js";
 

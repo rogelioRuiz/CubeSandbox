@@ -559,6 +559,29 @@ class Sandbox:
         )
         _check_response(resp)
 
+    def get_network(self) -> Dict[str, Any]:
+        """GET /sandboxes/:sandboxID/network - Read the egress policy back.
+
+        The answer comes from the node the sandbox runs on, not from the last
+        update body, so it also lists the entries the node folds in (the
+        sandbox's DNS resolvers, which every domain rule needs).
+
+        Returns:
+            ``{"policy": {...}, "generation": int, "source": "node"}``.
+            ``generation`` advances on every accepted update, so polling until
+            it changes is how a caller confirms an ``update_network`` landed.
+
+        Raises:
+            SandboxNotFoundError: If the sandbox does not exist (HTTP 404).
+            ApiError: If the sandbox is not running (HTTP 409) or on
+                unexpected backend error (HTTP 500).
+        """
+        resp = self._session.get(
+            f"{self._config.api_url}/sandboxes/{self.sandbox_id}/network",
+        )
+        _check_response(resp)
+        return resp.json()
+
     def kill(self) -> None:
         """DELETE /sandboxes/:sandboxID - Destroy a sandbox.
 

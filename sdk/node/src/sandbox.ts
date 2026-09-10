@@ -19,6 +19,7 @@ import {
   serializeRule,
   validateAllowOutDomainsRequireDenyAll,
   type NetworkRules,
+  type Rule,
 } from "./policy.js";
 import { Pty } from "./pty.js";
 import { createIdleTimeout, parseNdjsonStream, type RunCodeCallbacks } from "./stream.js";
@@ -59,6 +60,34 @@ export interface LifecycleOptions {
  */
 export interface UpdateNetworkOptions extends NetworkOptions {
   allowInternetAccess?: boolean;
+}
+
+/**
+ * Egress policy a sandbox is running under, as returned by
+ * {@link Sandbox.getNetwork}.
+ *
+ * It is the policy the node has installed, so it also lists the entries the
+ * node folds in on top of what the caller authored (the sandbox's DNS
+ * resolvers, which every domain rule needs). It is not a copy of the last
+ * update body.
+ */
+export interface NetworkPolicy {
+  allowInternetAccess?: boolean;
+  allowOut?: string[];
+  denyOut?: string[];
+  rules?: Rule[];
+}
+
+/** Result of {@link Sandbox.getNetwork}: the policy and its generation. */
+export interface NetworkState {
+  policy: NetworkPolicy;
+  /**
+   * Datapath policy generation. It advances on every accepted update, so
+   * polling until it changes confirms an {@link Sandbox.updateNetwork} landed.
+   */
+  generation: number;
+  /** Where the server read the policy. Always `"node"`. */
+  source: string;
 }
 
 export interface CreateOptions {
@@ -670,6 +699,21 @@ export class Sandbox {
       },
     );
     await checkControlResponse(resp);
+  }
+
+  /**
+   * GET /sandboxes/:id/network — read the egress policy back from the node.
+   *
+   * The answer comes from the node the sandbox runs on, not from the last
+   * update body, and carries the generation the datapath is enforcing.
+   */
+  async getNetwork(): Promise<NetworkState> {
+    const resp = await controlFetch(
+      this.config,
+      `${this.config.apiUrl}/sandboxes/${this.sandboxId}/network`,
+    );
+    await checkControlResponse(resp);
+    return (await resp.json()) as NetworkState;
   }
 
   /** DELETE /sandboxes/:id — destroy a sandbox. */

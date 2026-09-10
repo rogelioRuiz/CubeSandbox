@@ -857,6 +857,28 @@ class TestGetInfo:
         assert "envdAccessToken" not in info.copy()
         assert secret not in json.dumps(info)
 
+    def test_get_network_returns_policy_and_generation(self):
+        sb = make_sandbox()
+        body = {
+            "policy": {"allowOut": ["api.example.com"], "denyOut": ["0.0.0.0/0"]},
+            "generation": 3,
+            "source": "node",
+        }
+        with patch.object(sb._session, "get", return_value=mock_response(body)) as get:
+            state = sb.get_network()
+        assert get.call_args[0][0].endswith(f"/sandboxes/{SANDBOX_ID}/network")
+        assert state["generation"] == 3
+        assert state["source"] == "node"
+        assert state["policy"]["allowOut"] == ["api.example.com"]
+
+    def test_get_network_conflict_raises(self):
+        sb = make_sandbox()
+        with patch.object(
+            sb._session, "get", return_value=mock_response({"message": "not running"}, status=409)
+        ):
+            with pytest.raises(ApiError):
+                sb.get_network()
+
     def test_get_info_returns_sandbox_info(self):
         sb = make_sandbox()
         with patch.object(sb._session, "get", return_value=mock_response(FULL_INFO_DATA)):

@@ -413,6 +413,35 @@ describe("Sandbox instance operations", () => {
     sb.close();
   });
 
+  it("reads the live egress policy via GET /sandboxes/:id/network", async () => {
+    const sb = await createSandbox();
+    setHandler((req) => {
+      expect(req.method).toBe("GET");
+      expect(req.pathname).toBe(`/sandboxes/${SANDBOX_ID}/network`);
+      return {
+        status: 200,
+        json: {
+          policy: { allowInternetAccess: false, allowOut: ["api.example.com"] },
+          generation: 5,
+          source: "node",
+        },
+      };
+    });
+    const state = await sb.getNetwork();
+    expect(state.generation).toBe(5);
+    expect(state.source).toBe("node");
+    expect(state.policy.allowOut).toEqual(["api.example.com"]);
+    expect(state.policy.allowInternetAccess).toBe(false);
+    sb.close();
+  });
+
+  it("maps a not-running sandbox to ApiError on getNetwork", async () => {
+    const sb = await createSandbox();
+    setHandler(() => ({ status: 409, json: { message: "sandbox network is not active" } }));
+    await expect(sb.getNetwork()).rejects.toBeInstanceOf(ApiError);
+    sb.close();
+  });
+
   it("kills via DELETE /sandboxes/:id", async () => {
     const sb = await createSandbox();
     setHandler((req) => {

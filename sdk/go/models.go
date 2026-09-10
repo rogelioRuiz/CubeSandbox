@@ -95,6 +95,30 @@ type UpdateNetworkOptions struct {
 	AllowInternetAccess *bool
 }
 
+// NetworkPolicy is the egress policy a sandbox is running under, as returned
+// by Sandbox.GetNetwork.
+//
+// It is the policy the node has installed, so it also lists entries the node
+// folds in on top of what the caller authored (the sandbox's DNS resolvers,
+// which every domain rule needs). It is not a copy of the last update body.
+type NetworkPolicy struct {
+	AllowInternetAccess *bool    `json:"allowInternetAccess,omitempty"`
+	AllowOut            []string `json:"allowOut,omitempty"`
+	DenyOut             []string `json:"denyOut,omitempty"`
+	Rules               []Rule   `json:"rules,omitempty"`
+}
+
+// NetworkState is the answer to Sandbox.GetNetwork: the policy plus the
+// datapath generation it was read at.
+type NetworkState struct {
+	Policy NetworkPolicy `json:"policy"`
+	// Generation advances on every accepted policy update, so a caller can
+	// tell its own change apart from a stale read.
+	Generation uint32 `json:"generation"`
+	// Source records where the server read the policy. It is always "node".
+	Source string `json:"source"`
+}
+
 // DurationPtr returns a pointer to d. It is a convenience for optional
 // duration fields such as CreateOptions.Timeout and Sandbox.Resume, where nil
 // means "not provided; let the server decide".
