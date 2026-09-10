@@ -840,6 +840,39 @@ impl UpdateSandboxNetworkRequest {
     }
 }
 
+/// Egress policy a sandbox is running under, as read back from its node.
+///
+/// This is the applied policy, so it also carries the entries the node folds
+/// in on top of what the caller authored (the sandbox's DNS resolvers, which
+/// every domain rule depends on). It is deliberately not a mirror of the last
+/// update body.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
+pub struct SandboxNetworkPolicy {
+    #[serde(
+        rename = "allowInternetAccess",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub allow_internet_access: Option<bool>,
+    #[serde(rename = "allowOut", default, skip_serializing_if = "Vec::is_empty")]
+    pub allow_out: Vec<String>,
+    #[serde(rename = "denyOut", default, skip_serializing_if = "Vec::is_empty")]
+    pub deny_out: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<EgressRule>,
+}
+
+/// Response body for GET /sandboxes/{id}/network.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SandboxNetworkView {
+    pub policy: SandboxNetworkPolicy,
+    /// Datapath policy generation. It advances on every accepted update, so a
+    /// client can confirm its PUT is the one being enforced.
+    pub generation: u32,
+    /// Where the policy was read. Always `node`: the API refuses to answer
+    /// from the stored create spec, whose write is best effort.
+    pub source: String,
+}
+
 // ─── Sandbox — timeout / refresh ──────────────────────────────────────────
 
 /// Request body for POST /sandboxes/{id}/timeout

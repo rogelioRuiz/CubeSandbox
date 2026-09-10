@@ -10,16 +10,18 @@ use crate::{
     constants::{ENVD_VERSION_ANNOTATION, ENVD_VERSION_FALLBACK},
     cubemaster::{
         datetime_from_unix_nanos, extract_template_id, CreateSandboxRequest, CubeEgressRule,
-        CubeEgressRuleAction, CubeEgressRuleInject, CubeEgressRuleMatch, CubeMasterClient,
-        CubeMasterError, CubeNetworkConfig, DeleteSandboxRequest, ListSandboxRequest, SandboxInfo,
-        SandboxLogsRequest, SandboxNetworkRequest, SandboxRefreshRequest, SandboxStatus,
-        SandboxTimeoutRequest, SandboxUpdateRequest, VolumeSpec,
+        CubeEgressRuleAction, CubeEgressRuleInject, CubeEgressRuleMatch, CubeEgressRuleView,
+        CubeMasterClient, CubeMasterError, CubeNetworkConfig, CubeNetworkConfigView,
+        DeleteSandboxRequest, ListSandboxRequest, SandboxInfo, SandboxLogsRequest,
+        SandboxNetworkRequest, SandboxRefreshRequest, SandboxStatus, SandboxTimeoutRequest,
+        SandboxUpdateRequest, VolumeSpec,
     },
     error::{AppError, AppResult},
     models::{
-        EgressRule, EgressRuleMatch, LogLevel as ModelLogLevel, NewSandbox, Sandbox,
-        SandboxAutoResume, SandboxDetail, SandboxLifecycleConfig, SandboxLog, SandboxLogEntry,
-        SandboxLogs, SandboxLogsV2Response, SandboxNetworkConfig, SandboxOnTimeout, SandboxState,
+        EgressRule, EgressRuleAction, EgressRuleInject, EgressRuleMatch, LogLevel as ModelLogLevel,
+        NewSandbox, Sandbox, SandboxAutoResume, SandboxDetail, SandboxLifecycleConfig, SandboxLog,
+        SandboxLogEntry, SandboxLogs, SandboxLogsV2Response, SandboxNetworkConfig,
+        SandboxNetworkPolicy, SandboxNetworkView, SandboxOnTimeout, SandboxState,
         SandboxVolumeMount,
     },
 };
@@ -532,6 +534,30 @@ impl SandboxService {
         Ok(())
     }
 
+    /// Read a running sandbox's egress policy back from the node it runs on.
+    ///
+    /// The answer is deliberately not assembled from the last update body or
+    /// from the stored create spec: only the node knows which policy the
+    /// datapath accepted. `generation` advances on every accepted update, so a
+    /// client can tell its own change apart from a stale read.
+    pub async fn get_network(&self, sandbox_id: &str) -> AppResult<SandboxNetworkView> {
+        let resp = self
+            .cubemaster
+            .get_sandbox_network(sandbox_id, &self.instance_type)
+            .await
+            .map_err(|e| map_update_cubemaster_err(e, sandbox_id))?;
+
+        resp.ret
+            .into_result()
+            .map_err(|e| map_update_cubemaster_err(e, sandbox_id))?;
+
+        Ok(SandboxNetworkView {
+            policy: network_policy_from_cubemaster(resp.cube_network_config),
+            generation: resp.generation,
+            source: resp.source,
+        })
+    }
+
     pub async fn refresh(&self, sandbox_id: &str, duration: i32) -> AppResult<()> {
         let req = SandboxRefreshRequest {
             request_id: new_request_id(),
@@ -812,6 +838,58 @@ fn delete_retry_message(ret_msg: String, sandbox_id: &str, fallback: &str) -> St
 // parse_response treats any non-success ret_code as CubeMasterError::Api before the
 // caller sees the envelope, so pause/resume/connect must remap business codes here
 // (ensure_update_result alone never runs on that path).
+/// Convert the policy CubeMaster read off the node into the public shape.
+fn network_policy_from_cubemaster(view: Option<CubeNetworkConfigView>) -> SandboxNetworkPolicy {
+    let Some(view) = view else {
+        return SandboxNetworkPolicy::default();
+    };
+    SandboxNetworkPolicy {
+        allow_internet_access: view.allow_internet_access,
+        allow_out: view.allow_out,
+        deny_out: view.deny_out,
+        rules: view
+            .rules
+            .into_iter()
+            .map(network_rule_from_cubemaster)
+            .collect(),
+    }
+}
+
+fn network_rule_from_cubemaster(rule: CubeEgressRuleView) -> EgressRule {
+    let m = rule.r#match.unwrap_or_default();
+    let action = rule.action.unwrap_or_default();
+    EgressRule {
+        name: rule.name,
+        r#match: EgressRuleMatch {
+            sni: m.sni,
+            host: m.host,
+            method: m.method,
+            path: m.path,
+            scheme: m.scheme,
+            port: m.port,
+        },
+        action: EgressRuleAction {
+            allow: action.allow,
+            audit: action.audit,
+            inject: if action.inject.is_empty() {
+                None
+            } else {
+                Some(
+                    action
+                        .inject
+                        .into_iter()
+                        .map(|i| EgressRuleInject {
+                            header: i.header,
+                            secret: i.secret,
+                            format: i.format,
+                        })
+                        .collect(),
+                )
+            },
+        },
+    }
+}
+
 fn map_update_cubemaster_err(e: CubeMasterError, sandbox_id: &str) -> AppError {
     match e {
         CubeMasterError::Api { ret_code, .. } if ret_code == RET_CODE_NOT_FOUND => {
@@ -1222,7 +1300,7 @@ mod tests {
         extract::State,
         http::{header::RETRY_AFTER, StatusCode},
         response::IntoResponse,
-        routing::{delete, post},
+        routing::{delete, get, post},
         Json, Router,
     };
     use serde_json::Value;
@@ -1345,6 +1423,99 @@ mod tests {
             AppError::Conflict(message) => assert_eq!(message, reason),
             other => panic!("expected conflict error, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn get_network_returns_node_policy_and_generation() {
+        // The read-back is what a client polls after a PUT, so the generation
+        // and the applied policy both have to survive the mapping. The policy
+        // includes entries the node folded in (the resolver /32 here), which a
+        // mirror of the last update body would not show.
+        let service = spawn_fake_cubemaster(Router::new().route(
+            "/cube/sandbox/network",
+            get(move || async move {
+                Json(serde_json::json!({
+                    "requestID": "req-1",
+                    "sandboxID": "sbx-1",
+                    "cube_network_config": {
+                        "allowInternetAccess": false,
+                        "allowOut": ["api.example.com", "169.254.0.53/32"],
+                        "denyOut": ["0.0.0.0/0"],
+                        "rules": [{
+                            "name": "api",
+                            "match": {"host": "api.example.com", "port": 8443, "scheme": "https"},
+                            "action": {"allow": true}
+                        }]
+                    },
+                    "generation": 7,
+                    "source": "node",
+                    "ret": { "ret_code": 0, "ret_msg": "success" }
+                }))
+            }),
+        ))
+        .await;
+
+        let view = service
+            .get_network("sbx-1")
+            .await
+            .expect("read-back should succeed");
+        assert_eq!(view.generation, 7);
+        assert_eq!(view.source, "node");
+        assert_eq!(view.policy.allow_internet_access, Some(false));
+        assert_eq!(
+            view.policy.allow_out,
+            vec!["api.example.com".to_string(), "169.254.0.53/32".to_string()]
+        );
+        assert_eq!(view.policy.deny_out, vec!["0.0.0.0/0".to_string()]);
+        assert_eq!(view.policy.rules.len(), 1);
+        assert_eq!(view.policy.rules[0].r#match.port, Some(8443));
+    }
+
+    #[tokio::test]
+    async fn get_network_maps_cubemaster_conflict_to_conflict() {
+        // A sandbox whose network is gone is a client-state condition, exactly
+        // as it is on the update path; reporting it as 500 would charge it
+        // against the server's error rate.
+        let reason = "sandbox network is not active";
+        let service = spawn_fake_cubemaster(Router::new().route(
+            "/cube/sandbox/network",
+            get(move || async move { ret_envelope(130409, reason) }),
+        ))
+        .await;
+
+        let err = service
+            .get_network("sbx-1")
+            .await
+            .expect_err("an inactive network must not report a policy");
+        match err {
+            AppError::Conflict(message) => assert_eq!(message, reason),
+            other => panic!("expected conflict error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_network_empty_policy_is_empty_not_missing() {
+        // An empty policy is a real answer: the response must carry empty
+        // lists rather than dropping the fields, or a client cannot tell
+        // "no rules" from "field not reported".
+        let service = spawn_fake_cubemaster(Router::new().route(
+            "/cube/sandbox/network",
+            get(move || async move {
+                Json(serde_json::json!({
+                    "requestID": "req-1",
+                    "generation": 0,
+                    "source": "node",
+                    "ret": { "ret_code": 0, "ret_msg": "success" }
+                }))
+            }),
+        ))
+        .await;
+
+        let view = service.get_network("sbx-1").await.expect("empty policy");
+        assert!(view.policy.allow_out.is_empty());
+        assert!(view.policy.deny_out.is_empty());
+        assert!(view.policy.rules.is_empty());
+        assert_eq!(view.policy.allow_internet_access, None);
     }
 
     #[tokio::test]

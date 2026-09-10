@@ -240,6 +240,42 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiError'
   /sandboxes/{sandboxID}/network:
+    get:
+      tags:
+      - handlers::sandboxes
+      operationId: get_sandbox_network
+      parameters:
+      - name: sandboxID
+        in: path
+        description: Sandbox identifier
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Egress policy the node is enforcing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SandboxNetworkView'
+        '404':
+          description: Sandbox not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: Sandbox is not running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Unexpected backend error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
     put:
       tags:
       - handlers::sandboxes
@@ -1988,6 +2024,32 @@ components:
               L7 egress rules. Accepts CubeSandbox's ordered rule array and E2B's
               host-keyed transform map for compatibility. Both are normalized to the
               ordered internal rule model.
+    SandboxNetworkPolicy:
+      type: object
+      description: |-
+        Egress policy a sandbox is running under, as read back from its node.
+
+        This is the applied policy, so it also carries the entries the node folds
+        in on top of what the caller authored (the sandbox's DNS resolvers, which
+        every domain rule depends on). It is deliberately not a mirror of the last
+        update body.
+      properties:
+        allowInternetAccess:
+          type:
+          - boolean
+          - 'null'
+        allowOut:
+          type: array
+          items:
+            type: string
+        denyOut:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/EgressRule'
     SandboxNetworkRulesInput:
       oneOf:
       - type: array
@@ -2006,6 +2068,28 @@ components:
         CubeSandbox clients use the ordered rule array. E2B clients use a
         host-keyed map whose values are request transforms. CubeAPI normalizes both
         shapes into the internal ordered egress-rule model.
+    SandboxNetworkView:
+      type: object
+      description: Response body for GET /sandboxes/{id}/network.
+      required:
+      - policy
+      - generation
+      - source
+      properties:
+        generation:
+          type: integer
+          format: int32
+          description: |-
+            Datapath policy generation. It advances on every accepted update, so a
+            client can confirm its PUT is the one being enforced.
+          minimum: 0
+        policy:
+          $ref: '#/components/schemas/SandboxNetworkPolicy'
+        source:
+          type: string
+          description: |-
+            Where the policy was read. Always `node`: the API refuses to answer
+            from the stored create spec, whose write is best effort.
     SandboxOnTimeout:
       type: string
       enum:

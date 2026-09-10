@@ -174,6 +174,24 @@ impl CubeMasterClient {
         parse_response(resp).await
     }
 
+    /// GET /cube/sandbox/network — read a running sandbox's egress policy back
+    /// from the node it runs on.
+    pub async fn get_sandbox_network(
+        &self,
+        sandbox_id: &str,
+        instance_type: &str,
+    ) -> Result<GetSandboxNetworkResponse, CubeMasterError> {
+        let url = format!("{}/cube/sandbox/network", self.base_url);
+        let resp = self
+            .inner
+            .get(&url)
+            .query(&[("sandbox_id", sandbox_id), ("instance_type", instance_type)])
+            .send()
+            .await
+            .map_err(CubeMasterError::Http)?;
+        parse_response(resp).await
+    }
+
     /// POST /cube/sandbox/refresh — extend TTL by a delta (seconds).
     /// ❌ New API required on CubeMaster.
     pub async fn refresh_sandbox(
@@ -1500,6 +1518,87 @@ pub struct SandboxNetworkResponse {
     #[serde(rename = "sandboxID", default)]
     pub sandbox_id: String,
     pub ret: RetCode,
+}
+
+// ─── Read sandbox network policy ──────────────────────────────────────────
+// ✅ Implemented: GET /cube/sandbox/network
+
+#[derive(Debug, Deserialize)]
+pub struct GetSandboxNetworkResponse {
+    #[serde(rename = "sandboxID", default)]
+    #[allow(dead_code)]
+    pub sandbox_id: String,
+    /// Policy as installed on the node. Absent when the read failed.
+    #[serde(default)]
+    pub cube_network_config: Option<CubeNetworkConfigView>,
+    /// CubeVS policy generation for this sandbox.
+    #[serde(default)]
+    pub generation: u32,
+    /// Where CubeMaster read the policy. `node` is the only value it sends.
+    #[serde(default)]
+    pub source: String,
+    pub ret: RetCode,
+}
+
+/// Read-side twin of `CubeNetworkConfig`. The request type is serialize-only
+/// and omits empty collections, which is wrong for a response: a policy that
+/// really is empty has to come back as empty rather than as missing.
+#[derive(Debug, Deserialize, Default)]
+pub struct CubeNetworkConfigView {
+    #[serde(rename = "allowInternetAccess", default)]
+    pub allow_internet_access: Option<bool>,
+    #[serde(rename = "allowOut", default)]
+    pub allow_out: Vec<String>,
+    #[serde(rename = "denyOut", default)]
+    pub deny_out: Vec<String>,
+    #[serde(default)]
+    pub rules: Vec<CubeEgressRuleView>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CubeEgressRuleView {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub r#match: Option<CubeEgressRuleMatchView>,
+    #[serde(default)]
+    pub action: Option<CubeEgressRuleActionView>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CubeEgressRuleMatchView {
+    #[serde(default)]
+    pub sni: Option<String>,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub method: Option<Vec<String>>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub scheme: Option<String>,
+    #[serde(default)]
+    pub port: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CubeEgressRuleActionView {
+    #[serde(default)]
+    pub allow: bool,
+    #[serde(default)]
+    pub audit: Option<String>,
+    #[serde(default)]
+    pub inject: Vec<CubeEgressRuleInjectView>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CubeEgressRuleInjectView {
+    #[serde(default)]
+    pub header: String,
+    #[serde(default)]
+    pub secret: String,
+    #[serde(default)]
+    pub format: Option<String>,
 }
 
 // ─── Set sandbox timeout (absolute) ───────────────────────────────────────
