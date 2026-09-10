@@ -269,6 +269,25 @@ mod tests {
         TestServer::new(build_router(state)).expect("router should build")
     }
 
+    /// Both methods share one path, so a regression here is silent: the GET
+    /// would 405 while every PUT test stays green. An unreachable CubeMaster
+    /// makes both answer 5xx rather than 405, which is what this asserts.
+    #[tokio::test]
+    async fn sandbox_network_route_serves_both_get_and_put() {
+        let server = test_server().await;
+
+        let get = server.get("/sandboxes/sb-1/network").await;
+        assert_ne!(get.status_code(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_ne!(get.status_code(), StatusCode::NOT_FOUND);
+
+        let put = server
+            .put("/sandboxes/sb-1/network")
+            .json(&serde_json::json!({"allowInternetAccess": false}))
+            .await;
+        assert_ne!(put.status_code(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_ne!(put.status_code(), StatusCode::NOT_FOUND);
+    }
+
     #[tokio::test]
     async fn delete_paused_sandbox_maps_business_errors_from_cubemaster() {
         async fn delete_handler(Json(request): Json<Value>) -> Json<Value> {
