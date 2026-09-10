@@ -17,6 +17,10 @@ service CubeboxMgr {
   rpc Destroy(DestroyCubeSandboxRequest) returns (DestroyCubeSandboxResponse);
   rpc List(ListCubeSandboxRequest) returns (ListCubeSandboxResponse);
   rpc Update(UpdateCubeSandboxRequest) returns (UpdateCubeSandboxResponse);
+  // GetSandboxNetwork returns the egress policy this node has installed for a
+  // running sandbox, plus the datapath policy generation. It reads the live
+  // network state, so it reports what packets are actually judged against.
+  rpc GetSandboxNetwork(GetSandboxNetworkRequest) returns (GetSandboxNetworkResponse);
   rpc Exec(ExecCubeSandboxRequest) returns (ExecCubeSandboxResponse);
   // AppSnapshot creates a cubebox, makes an app snapshot, and destroys the cubebox.
   // Required annotations:
@@ -778,6 +782,28 @@ message UpdateCubeSandboxResponse {
   // S3 Pause: cubecow_export_snapshot uuids JSON (rootfs/memory/metadata).
   // Filled before this RPC returns. Empty on xfs.
   string remote_uuids = 4;
+}
+
+message GetSandboxNetworkRequest {
+  // requestID reqID
+  string requestID = 1;
+  // ID of the Sandbox.
+  string sandboxID = 2;
+}
+
+message GetSandboxNetworkResponse {
+  // requestID reqID
+  string requestID = 1;
+  // ID of the Sandbox.
+  string sandboxID = 2;
+  // Egress policy currently installed on the node, including the resolver
+  // allow-out entries the runtime folds in. Absent when the lookup failed.
+  optional CubeNetworkConfig cube_network_config = 3;
+  // Datapath policy generation for this sandbox's TAP device. It advances on
+  // every accepted policy update, so a caller can prove an update landed.
+  uint32 generation = 4;
+  // Ret.
+  cubelet.services.errorcode.v1.Ret ret = 5;
 }
 
 // IDMapping describes host to container ID mappings for a pod sandbox.

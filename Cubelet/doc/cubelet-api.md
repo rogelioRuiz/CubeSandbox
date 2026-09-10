@@ -43,6 +43,8 @@
     - [ExecCubeSandboxResponse](#cubelet-services-cubebox-v1-ExecCubeSandboxResponse)
     - [GetLocalSnapshotRequest](#cubelet-services-cubebox-v1-GetLocalSnapshotRequest)
     - [GetLocalSnapshotResponse](#cubelet-services-cubebox-v1-GetLocalSnapshotResponse)
+    - [GetSandboxNetworkRequest](#cubelet-services-cubebox-v1-GetSandboxNetworkRequest)
+    - [GetSandboxNetworkResponse](#cubelet-services-cubebox-v1-GetSandboxNetworkResponse)
     - [GetStorageMetricsRequest](#cubelet-services-cubebox-v1-GetStorageMetricsRequest)
     - [GetStorageMetricsResponse](#cubelet-services-cubebox-v1-GetStorageMetricsResponse)
     - [GetStorageMetricsResponse.MetricsEntry](#cubelet-services-cubebox-v1-GetStorageMetricsResponse-MetricsEntry)
@@ -962,6 +964,41 @@ EmptyDirVolumeSource represents an empty directory for a sandbox.
 | requestID | [string](#string) |  | requestID reqID |
 | ret | [cubelet.services.errorcode.v1.Ret](#cubelet-services-errorcode-v1-Ret) |  | Ret. |
 | snapshot | [LocalSnapshotInfo](#cubelet-services-cubebox-v1-LocalSnapshotInfo) |  | Catalog entry. Nil/empty when not found. |
+
+
+
+
+
+
+<a name="cubelet-services-cubebox-v1-GetSandboxNetworkRequest"></a>
+
+### GetSandboxNetworkRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| requestID | [string](#string) |  | requestID reqID |
+| sandboxID | [string](#string) |  | ID of the Sandbox. |
+
+
+
+
+
+
+<a name="cubelet-services-cubebox-v1-GetSandboxNetworkResponse"></a>
+
+### GetSandboxNetworkResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| requestID | [string](#string) |  | requestID reqID |
+| sandboxID | [string](#string) |  | ID of the Sandbox. |
+| cube_network_config | [CubeNetworkConfig](#cubelet-services-cubebox-v1-CubeNetworkConfig) | optional | Egress policy currently installed on the node, including the resolver allow-out entries the runtime folds in. Absent when the lookup failed. |
+| generation | [uint32](#uint32) |  | Datapath policy generation for this sandbox&#39;s TAP device. It advances on every accepted policy update, so a caller can prove an update landed. |
+| ret | [cubelet.services.errorcode.v1.Ret](#cubelet-services-errorcode-v1-Ret) |  | Ret. |
 
 
 
@@ -2049,6 +2086,7 @@ Service for handling cubesandbox
 | Destroy | [DestroyCubeSandboxRequest](#cubelet-services-cubebox-v1-DestroyCubeSandboxRequest) | [DestroyCubeSandboxResponse](#cubelet-services-cubebox-v1-DestroyCubeSandboxResponse) |  |
 | List | [ListCubeSandboxRequest](#cubelet-services-cubebox-v1-ListCubeSandboxRequest) | [ListCubeSandboxResponse](#cubelet-services-cubebox-v1-ListCubeSandboxResponse) |  |
 | Update | [UpdateCubeSandboxRequest](#cubelet-services-cubebox-v1-UpdateCubeSandboxRequest) | [UpdateCubeSandboxResponse](#cubelet-services-cubebox-v1-UpdateCubeSandboxResponse) |  |
+| GetSandboxNetwork | [GetSandboxNetworkRequest](#cubelet-services-cubebox-v1-GetSandboxNetworkRequest) | [GetSandboxNetworkResponse](#cubelet-services-cubebox-v1-GetSandboxNetworkResponse) | GetSandboxNetwork returns the egress policy this node has installed for a running sandbox, plus the datapath policy generation. It reads the live network state, so it reports what packets are actually judged against. |
 | Exec | [ExecCubeSandboxRequest](#cubelet-services-cubebox-v1-ExecCubeSandboxRequest) | [ExecCubeSandboxResponse](#cubelet-services-cubebox-v1-ExecCubeSandboxResponse) |  |
 | AppSnapshot | [AppSnapshotRequest](#cubelet-services-cubebox-v1-AppSnapshotRequest) | [AppSnapshotResponse](#cubelet-services-cubebox-v1-AppSnapshotResponse) | AppSnapshot creates a cubebox, makes an app snapshot, and destroys the cubebox. Required annotations: - cube.master.appsnapshot.create: &#34;true&#34; - cube.master.appsnapshot.template.id: &#34;&lt;template_id&gt;&#34; |
 | CommitSandbox | [CommitSandboxRequest](#cubelet-services-cubebox-v1-CommitSandboxRequest) | [CommitSandboxResponse](#cubelet-services-cubebox-v1-CommitSandboxResponse) | CommitSandbox snapshots an existing running sandbox into a template snapshot. |
