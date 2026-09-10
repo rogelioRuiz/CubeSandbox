@@ -33,6 +33,10 @@ type fakeNetworkRuntime struct {
 	lastUpdatePolicyRequest *networkruntime.UpdateNetworkPolicyRequest
 	updatePolicyErr         error
 
+	lastGetPolicyRequest *networkruntime.GetNetworkPolicyRequest
+	getPolicyResponse    *networkruntime.GetNetworkPolicyResponse
+	getPolicyErr         error
+
 	listTaps         []networkruntime.TapState
 	dumpPolicies     map[string]map[string]any
 	healthErrs       []error
@@ -91,6 +95,17 @@ func (c *fakeNetworkRuntime) ReleaseNetwork(_ context.Context, req *networkrunti
 func (c *fakeNetworkRuntime) UpdateNetworkPolicy(_ context.Context, req *networkruntime.UpdateNetworkPolicyRequest) error {
 	c.lastUpdatePolicyRequest = req
 	return c.updatePolicyErr
+}
+
+func (c *fakeNetworkRuntime) GetNetworkPolicy(_ context.Context, req *networkruntime.GetNetworkPolicyRequest) (*networkruntime.GetNetworkPolicyResponse, error) {
+	c.lastGetPolicyRequest = req
+	if c.getPolicyErr != nil {
+		return nil, c.getPolicyErr
+	}
+	if c.getPolicyResponse != nil {
+		return c.getPolicyResponse, nil
+	}
+	return &networkruntime.GetNetworkPolicyResponse{}, nil
 }
 
 func (c *fakeNetworkRuntime) ListTaps(_ context.Context, _ *networkruntime.ListTapsRequest) (*networkruntime.ListTapsResponse, error) {

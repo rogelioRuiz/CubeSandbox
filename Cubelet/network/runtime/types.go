@@ -54,6 +54,21 @@ type UpdateNetworkPolicyRequest struct {
 	DNSAllowOutCIDRs []string `json:"dnsAllowOutCIDRs,omitempty"`
 }
 
+// GetNetworkPolicyRequest reads back the egress policy a sandbox is running
+// under right now.
+type GetNetworkPolicyRequest struct {
+	SandboxID string `json:"sandboxID,omitempty"`
+}
+
+// GetNetworkPolicyResponse is the node's own view of a sandbox's egress
+// policy. CubeNetworkConfig is what the runtime installed, resolver allow-out
+// entries included, and Generation is the CubeVS policy generation the
+// datapath judges packets under.
+type GetNetworkPolicyResponse struct {
+	CubeNetworkConfig *CubeNetworkConfig `json:"cubeNetworkConfig,omitempty"`
+	Generation        uint32             `json:"generation,omitempty"`
+}
+
 // ReleaseNetworkResponse confirms the release handoff and returns the metadata
 // persisted at creation time when the network existed.
 type ReleaseNetworkResponse struct {

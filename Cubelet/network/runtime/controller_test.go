@@ -1089,6 +1089,86 @@ func TestUpdateNetworkPolicyUnknownSandbox(t *testing.T) {
 	}
 }
 
+// TestGetNetworkPolicyReturnsAppliedPolicyAndGeneration pins the read-back
+// contract: the policy comes from the node's own applied state (resolver
+// entries folded in and all) and the generation from the live TAP metadata,
+// so a caller can prove which update the datapath is enforcing.
+func TestGetNetworkPolicyReturnsAppliedPolicyAndGeneration(t *testing.T) {
+	c := newCreateTestController(t, nil)
+	registerActiveSandbox(t, c, "sb-get", &CubeNetworkConfig{AllowOut: []string{"1.1.1.1/32"}}, nil)
+	c.cubevsAdapter.(*fakeCubeVSAdapter).getTAPDeviceByIndex = map[uint32]*cubevs.TAPDevice{
+		77: {Ifindex: 77, PolicyVersion: 4},
+	}
+
+	rsp, err := c.GetNetworkPolicy(context.Background(), &GetNetworkPolicyRequest{SandboxID: "sb-get"})
+	if err != nil {
+		t.Fatalf("GetNetworkPolicy: %v", err)
+	}
+	if rsp.CubeNetworkConfig == nil || len(rsp.CubeNetworkConfig.AllowOut) != 1 ||
+		rsp.CubeNetworkConfig.AllowOut[0] != "1.1.1.1/32" {
+		t.Errorf("policy=%+v, want the applied allow_out", rsp.CubeNetworkConfig)
+	}
+	if rsp.Generation != 4 {
+		t.Errorf("generation=%d, want 4 read from the live TAP", rsp.Generation)
+	}
+}
+
+// TestGetNetworkPolicyReflectsUpdate is the whole reason the call reads the
+// node: after an update the read-back must show the new policy and a
+// generation that advanced, which is what a client polls to confirm a PUT.
+func TestGetNetworkPolicyReflectsUpdate(t *testing.T) {
+	c := newCreateTestController(t, nil)
+	registerActiveSandbox(t, c, "sb-get-update", &CubeNetworkConfig{AllowOut: []string{"1.1.1.1/32"}}, nil)
+	adapter := c.cubevsAdapter.(*fakeCubeVSAdapter)
+	adapter.getTAPDeviceByIndex = map[uint32]*cubevs.TAPDevice{77: {Ifindex: 77, PolicyVersion: 1}}
+
+	if err := c.UpdateNetworkPolicy(context.Background(), &UpdateNetworkPolicyRequest{
+		SandboxID:         "sb-get-update",
+		CubeNetworkConfig: &CubeNetworkConfig{AllowOut: []string{"2.2.2.2/32"}},
+	}); err != nil {
+		t.Fatalf("UpdateNetworkPolicy: %v", err)
+	}
+	// The real adapter bumps the generation inside UpdateTAPPolicy; the fake
+	// records the call, so advance it here to model the same effect.
+	adapter.getTAPDeviceByIndex[77] = &cubevs.TAPDevice{Ifindex: 77, PolicyVersion: 2}
+
+	rsp, err := c.GetNetworkPolicy(context.Background(), &GetNetworkPolicyRequest{SandboxID: "sb-get-update"})
+	if err != nil {
+		t.Fatalf("GetNetworkPolicy: %v", err)
+	}
+	if rsp.CubeNetworkConfig.AllowOut[0] != "2.2.2.2/32" {
+		t.Errorf("read-back allow_out=%v, want the updated target", rsp.CubeNetworkConfig.AllowOut)
+	}
+	if rsp.Generation != 2 {
+		t.Errorf("generation=%d, want 2 after an update", rsp.Generation)
+	}
+}
+
+// TestGetNetworkPolicyReturnsACopy makes sure a caller cannot mutate the
+// controller's live policy through the response.
+func TestGetNetworkPolicyReturnsACopy(t *testing.T) {
+	c := newCreateTestController(t, nil)
+	state := registerActiveSandbox(t, c, "sb-copy", &CubeNetworkConfig{AllowOut: []string{"1.1.1.1/32"}}, nil)
+	c.cubevsAdapter.(*fakeCubeVSAdapter).getTAPDeviceByIndex = map[uint32]*cubevs.TAPDevice{77: {Ifindex: 77}}
+
+	rsp, err := c.GetNetworkPolicy(context.Background(), &GetNetworkPolicyRequest{SandboxID: "sb-copy"})
+	if err != nil {
+		t.Fatalf("GetNetworkPolicy: %v", err)
+	}
+	rsp.CubeNetworkConfig.AllowOut[0] = "9.9.9.9/32"
+	if state.CubeNetworkConfig.AllowOut[0] != "1.1.1.1/32" {
+		t.Errorf("caller mutated the live policy: %v", state.CubeNetworkConfig.AllowOut)
+	}
+}
+
+func TestGetNetworkPolicyUnknownSandbox(t *testing.T) {
+	c := newCreateTestController(t, nil)
+	_, err := c.GetNetworkPolicy(context.Background(), &GetNetworkPolicyRequest{SandboxID: "sb-missing"})
+	if !errors.Is(err, ErrNetworkNotActive) {
+		t.Fatalf("err=%v, want ErrNetworkNotActive so callers can return a conflict", err)
+	}
+}
+
 // TestUpdateNetworkPolicyKeepsOldPolicyOnCubeVSFailure pins the no-rollback
 // contract's safe half: a failed update must not advance the durable state, so
 // a restart re-applies the policy the sandbox actually ran with.
