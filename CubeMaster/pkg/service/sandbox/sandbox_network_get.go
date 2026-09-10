@@ -10,7 +10,7 @@ import (
 	"github.com/tencentcloud/CubeSandbox/CubeMaster/pkg/cubelet"
 	"github.com/tencentcloud/CubeSandbox/CubeMaster/pkg/errorcode"
 	"github.com/tencentcloud/CubeSandbox/CubeMaster/pkg/service/sandbox/types"
-	"github.com/tencentcloud/CubeSandbox/pkgs/proto/services/cubebox/v1"
+	"github.com/tencentcloud/CubeSandbox/CubeMaster/api/services/cubebox/v1"
 )
 
 // networkSourceNode marks a policy read that came from the node running the

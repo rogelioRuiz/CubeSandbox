@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tencentcloud/CubeSandbox/CubeMaster/pkg/errorcode"
 	"github.com/tencentcloud/CubeSandbox/CubeMaster/pkg/service/sandbox/types"
-	cubebox "github.com/tencentcloud/CubeSandbox/pkgs/proto/services/cubebox/v1"
+	cubebox "github.com/tencentcloud/CubeSandbox/CubeMaster/api/services/cubebox/v1"
 )
 
 // TestMapCubeNetworkConfigFromCubeletRoundTrips pins the read-back mapper
