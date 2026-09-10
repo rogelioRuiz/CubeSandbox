@@ -27,6 +27,7 @@ const (
 	CubeboxMgr_Destroy_FullMethodName                   = "/cubelet.services.cubebox.v1.CubeboxMgr/Destroy"
 	CubeboxMgr_List_FullMethodName                      = "/cubelet.services.cubebox.v1.CubeboxMgr/List"
 	CubeboxMgr_Update_FullMethodName                    = "/cubelet.services.cubebox.v1.CubeboxMgr/Update"
+	CubeboxMgr_GetSandboxNetwork_FullMethodName         = "/cubelet.services.cubebox.v1.CubeboxMgr/GetSandboxNetwork"
 	CubeboxMgr_Exec_FullMethodName                      = "/cubelet.services.cubebox.v1.CubeboxMgr/Exec"
 	CubeboxMgr_AppSnapshot_FullMethodName               = "/cubelet.services.cubebox.v1.CubeboxMgr/AppSnapshot"
 	CubeboxMgr_CommitSandbox_FullMethodName             = "/cubelet.services.cubebox.v1.CubeboxMgr/CommitSandbox"
@@ -50,6 +51,10 @@ type CubeboxMgrClient interface {
 	Destroy(ctx context.Context, in *DestroyCubeSandboxRequest, opts ...grpc.CallOption) (*DestroyCubeSandboxResponse, error)
 	List(ctx context.Context, in *ListCubeSandboxRequest, opts ...grpc.CallOption) (*ListCubeSandboxResponse, error)
 	Update(ctx context.Context, in *UpdateCubeSandboxRequest, opts ...grpc.CallOption) (*UpdateCubeSandboxResponse, error)
+	// GetSandboxNetwork returns the egress policy this node has installed for a
+	// running sandbox, plus the datapath policy generation. It reads the live
+	// network state, so it reports what packets are actually judged against.
+	GetSandboxNetwork(ctx context.Context, in *GetSandboxNetworkRequest, opts ...grpc.CallOption) (*GetSandboxNetworkResponse, error)
 	Exec(ctx context.Context, in *ExecCubeSandboxRequest, opts ...grpc.CallOption) (*ExecCubeSandboxResponse, error)
 	// AppSnapshot creates a cubebox, makes an app snapshot, and destroys the cubebox.
 	// Required annotations:
@@ -124,6 +129,16 @@ func (c *cubeboxMgrClient) Update(ctx context.Context, in *UpdateCubeSandboxRequ
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateCubeSandboxResponse)
 	err := c.cc.Invoke(ctx, CubeboxMgr_Update_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *cubeboxMgrClient) GetSandboxNetwork(ctx context.Context, in *GetSandboxNetworkRequest, opts ...grpc.CallOption) (*GetSandboxNetworkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetSandboxNetworkResponse)
+	err := c.cc.Invoke(ctx, CubeboxMgr_GetSandboxNetwork_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +265,10 @@ type CubeboxMgrServer interface {
 	Destroy(context.Context, *DestroyCubeSandboxRequest) (*DestroyCubeSandboxResponse, error)
 	List(context.Context, *ListCubeSandboxRequest) (*ListCubeSandboxResponse, error)
 	Update(context.Context, *UpdateCubeSandboxRequest) (*UpdateCubeSandboxResponse, error)
+	// GetSandboxNetwork returns the egress policy this node has installed for a
+	// running sandbox, plus the datapath policy generation. It reads the live
+	// network state, so it reports what packets are actually judged against.
+	GetSandboxNetwork(context.Context, *GetSandboxNetworkRequest) (*GetSandboxNetworkResponse, error)
 	Exec(context.Context, *ExecCubeSandboxRequest) (*ExecCubeSandboxResponse, error)
 	// AppSnapshot creates a cubebox, makes an app snapshot, and destroys the cubebox.
 	// Required annotations:
@@ -301,6 +320,9 @@ func (UnimplementedCubeboxMgrServer) List(context.Context, *ListCubeSandboxReque
 }
 func (UnimplementedCubeboxMgrServer) Update(context.Context, *UpdateCubeSandboxRequest) (*UpdateCubeSandboxResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Update not implemented")
+}
+func (UnimplementedCubeboxMgrServer) GetSandboxNetwork(context.Context, *GetSandboxNetworkRequest) (*GetSandboxNetworkResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSandboxNetwork not implemented")
 }
 func (UnimplementedCubeboxMgrServer) Exec(context.Context, *ExecCubeSandboxRequest) (*ExecCubeSandboxResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Exec not implemented")
@@ -424,6 +446,24 @@ func _CubeboxMgr_Update_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(CubeboxMgrServer).Update(ctx, req.(*UpdateCubeSandboxRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CubeboxMgr_GetSandboxNetwork_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSandboxNetworkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CubeboxMgrServer).GetSandboxNetwork(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CubeboxMgr_GetSandboxNetwork_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CubeboxMgrServer).GetSandboxNetwork(ctx, req.(*GetSandboxNetworkRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -648,6 +688,10 @@ var CubeboxMgr_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Update",
 			Handler:    _CubeboxMgr_Update_Handler,
+		},
+		{
+			MethodName: "GetSandboxNetwork",
+			Handler:    _CubeboxMgr_GetSandboxNetwork_Handler,
 		},
 		{
 			MethodName: "Exec",
