@@ -98,6 +98,42 @@ static __always_inline bool dns_response_learning_enabled(__u32 ifindex)
 	return mvm_meta && (mvm_meta->dns_policy_flags & DNS_POLICY_FLAG_LEARNING_ENABLED);
 }
 
+/* Report whether a DNS answer address falls inside an always-denied range.
+ *
+ * deny_out mixes two kinds of row in one inner map: the invariant ranges every
+ * sandbox carries (private, loopback, link-local, CGNAT) and the user's own
+ * deny rules, including the literal 0.0.0.0/0 a deny-all policy installs. Only
+ * the invariant rows carry DENY_FLAG_INVARIANT, so a longest-prefix lookup can
+ * tell "the sandbox may never reach this address" apart from "this address is
+ * merely not allowed yet", which is what DNS learning exists to fix. Without
+ * the distinction a domain rule resolving to a private address would learn a
+ * /32 allow_out_v3 entry, and allow_out_v3 wins over deny_out in
+ * classify_egress_flow -- so a DNS answer could open the node network.
+ *
+ * A static (never-expiring) allow_out_v3 entry covering the address is an
+ * explicit operator decision, so it still wins. The lookup uses a /32 key,
+ * which longest-prefix-matches both an exact /32 and a covering subnet rule.
+ */
+static __always_inline bool dns_learn_ip_invariant_denied(__u32 ifindex, __u32 ip,
+							  void *allow_inner)
+{
+	struct lpm_key deny_key = { .prefixlen = 32, .ip = ip };
+	struct lpm_key_v3 allow_key = { .prefixlen = 32, .ip = ip, .port = 0 };
+	struct net_policy_value_v3 *allow;
+	void *deny_inner;
+	__u32 *deny;
+
+	deny_inner = bpf_map_lookup_elem(&deny_out, &ifindex);
+	if (!deny_inner)
+		return false;
+	deny = bpf_map_lookup_elem(deny_inner, &deny_key);
+	if (!deny || !(*deny & DENY_FLAG_INVARIANT))
+		return false;
+
+	allow = bpf_map_lookup_elem(allow_inner, &allow_key);
+	return !(allow && allow->expires_at_ns == 0);
+}
+
 /* Add an IPv4 A-record address as temporary DNS-learned allow_out_v3
  * entries.
  *
@@ -127,6 +163,9 @@ static __always_inline void dns_learn_response_ip(__u32 ifindex, __u32 ip, __u32
 
 	inner_map = bpf_map_lookup_elem(&allow_out_v3, &ifindex);
 	if (!inner_map)
+		return;
+
+	if (dns_learn_ip_invariant_denied(ifindex, ip, inner_map))
 		return;
 
 	/* Learn the plain /32 (any-port) entry whenever the domain is

@@ -47,6 +47,19 @@
  * allow_out to only the rule's ports.
  */
 #define NET_POLICY_FLAG_L3_ALLOWED	2
+
+/* deny_out value bits. Bit 0 marks a userspace-installed (static) row and is
+ * what every deny row has always carried. Bit 1 marks a row that came from
+ * the invariant always-denied ranges (private, loopback, link-local, CGNAT)
+ * rather than from a user rule or from the literal 0.0.0.0/0 a deny-all
+ * policy installs. DNS learning needs the distinction: an answer inside an
+ * invariant range must never become an allow_out_v3 entry, while an answer
+ * that merely falls under the deny-all row is exactly what learning admits.
+ * Keep in sync with cubevs/cubevs.go (netPolicyValueStatic / denyFlagInvariant).
+ */
+#define DENY_FLAG_STATIC		1
+#define DENY_FLAG_INVARIANT		2
+
 #define NSEC_PER_SEC			1000000000ULL
 
 /* L7 scheme values embedded in dns_allow_value / net_policy_value_v2 per-port
