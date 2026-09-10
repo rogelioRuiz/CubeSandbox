@@ -1542,6 +1542,37 @@ func TestBumpPolicyVersionAdvancesGeneration(t *testing.T) {
 	}
 }
 
+// TestGetTAPDeviceReportsPolicyVersion pins the read side of the generation:
+// a caller that wants to prove a policy update reached the datapath has to be
+// able to read the counter back, not just bump it.
+func TestGetTAPDeviceReportsPolicyVersion(t *testing.T) {
+	mountBpffs(t)
+	pinTAPMetadataMaps(t)
+	ifindex := uint32(405)
+	if err := UpsertTAPDeviceMetadata(ifindex, net.ParseIP("10.0.0.6"), "sandbox-405", 3); err != nil {
+		t.Fatalf("UpsertTAPDeviceMetadata: %v", err)
+	}
+
+	dev, err := GetTAPDevice(ifindex)
+	if err != nil {
+		t.Fatalf("GetTAPDevice: %v", err)
+	}
+	if dev.PolicyVersion != 0 {
+		t.Fatalf("fresh TAP PolicyVersion=%d, want 0", dev.PolicyVersion)
+	}
+
+	if err := bumpPolicyVersion(ifindex); err != nil {
+		t.Fatalf("bumpPolicyVersion: %v", err)
+	}
+	dev, err = GetTAPDevice(ifindex)
+	if err != nil {
+		t.Fatalf("GetTAPDevice after bump: %v", err)
+	}
+	if dev.PolicyVersion != 1 {
+		t.Fatalf("PolicyVersion=%d after one bump, want 1", dev.PolicyVersion)
+	}
+}
+
 func assertV3Present(t *testing.T, inner *ebpf.Map, key lpmKeyV3, want bool, what string) {
 	t.Helper()
 	var val netPolicyValueV3
