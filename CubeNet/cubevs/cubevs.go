@@ -51,6 +51,10 @@ type TAPDevice struct {
 	IP      net.IP
 	ID      string
 	Ifindex int
+	// PolicyVersion is the sandbox's network-policy generation, advanced by
+	// every accepted policy update. A reader can use it to prove an update
+	// reached the datapath.
+	PolicyVersion uint32
 }
 
 // mvmMetadata is used to retrieve BPF map values.

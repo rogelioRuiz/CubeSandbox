@@ -275,8 +275,9 @@ func GetTAPDevice(ifindex uint32) (*TAPDevice, error) {
 	}
 
 	return &TAPDevice{
-		IP:      uint32ToIP(mvmMeta.IP),
-		ID:      bytesToString(mvmMeta.UUID[:]),
-		Ifindex: int(ifindex),
+		IP:            uint32ToIP(mvmMeta.IP),
+		ID:            bytesToString(mvmMeta.UUID[:]),
+		Ifindex:       int(ifindex),
+		PolicyVersion: mvmMeta.PolicyVersion,
 	}, nil
 }
